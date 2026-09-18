@@ -1649,9 +1649,15 @@ document.getElementById("orderForm").addEventListener("submit", async function(e
     const stockResult = await applyStockForOrderItems(items.map(it=>({id:it.id, size:it.size, qty:it.qty})));
     if(!stockResult.ok){
       alert(L==="ar"
-        ? "عذرًا، أحد المقاسات المطلوبة لم يعد متوفرًا بالكمية المطلوبة. من فضلك تحققي من المقاسات والكميات."
-        : "Désolé, une des tailles demandées n'est plus disponible en quantité suffisante. Merci de vérifier les tailles et quantités.");
-      populateVariantFields(p);
+        ? "عذرًا، أحد المقاسات المطلوبة لم يعد متوفرًا بالكمية المطلوبة. من فضلك تحققي من المقاسات والكميات المحدّثة أدناه."
+        : "Désolé, une des tailles demandées n'est plus disponible en quantité suffisante. Merci de vérifier les tailles et quantités mises à jour ci-dessous.");
+      // applyStockForOrderItems already reloaded PRODUCTS with the true,
+      // current stock — re-read the product from that fresh list (not the
+      // "p" captured at the top of this handler, which still points to the
+      // old, pre-refresh numbers) so the size dropdown shown to the
+      // customer reflects reality instead of a stale quantity.
+      const freshP = PRODUCTS.find(x=>x.id===id);
+      populateVariantFields(freshP);
       return;
     }
   }
