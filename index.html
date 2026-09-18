@@ -1098,7 +1098,7 @@ function renderCart(){
       const inStock = availableSizesFor(p);
       sizeHTML = `<div class="opt-group"><span class="opt-label">${dict.opt_size[L]}</span>
         <select onchange="updateCartItem('${l.key}','size',this.value)">
-          ${inStock.map(s=>`<option value="${s.size}" ${s.size===l.size?"selected":""}>${s.size} (${s.qty})</option>`).join("")}
+          ${inStock.map(s=>`<option value="${s.size}" ${s.size===l.size?"selected":""}>${s.size}</option>`).join("")}
         </select></div>`;
       const used = new Set(CART.filter(x=>x.id===l.id).map(x=>x.size));
       if(inStock.some(s=>!used.has(s.size))){
@@ -1227,7 +1227,7 @@ function renderSizeRows(p){
   box.innerHTML = OF_SIZE_ROWS.map((row,i)=>`
     <div style="display:flex;gap:8px;align-items:center;">
       <select class="of-size-row-select" data-idx="${i}" style="flex:1;padding:10px 11px;border:1.5px solid var(--line);border-radius:7px;font-size:14px;">
-        ${inStock.map(s=>`<option value="${s.size}" ${s.size===row.size?"selected":""}>${s.size} (${s.qty})</option>`).join("")}
+        ${inStock.map(s=>`<option value="${s.size}" ${s.size===row.size?"selected":""}>${s.size}</option>`).join("")}
       </select>
       <input type="number" class="of-size-row-qty" data-idx="${i}" min="1" value="${row.qty}" style="width:72px;padding:10px 8px;border:1.5px solid var(--line);border-radius:7px;font-size:14px;">
       ${OF_SIZE_ROWS.length>1?`<button type="button" class="of-size-row-remove" data-idx="${i}" style="background:rgba(0,0,0,.12);border:none;border-radius:50%;width:28px;height:28px;cursor:pointer;font-size:13px;flex-shrink:0;">×</button>`:""}
@@ -1498,6 +1498,32 @@ function updatePriceBreakdown(){
 
 document.getElementById("orderForm").addEventListener("submit", async function(e){
   e.preventDefault();
+
+  // Guard against double submission: a slow connection or a mobile browser
+  // that silently blocked the WhatsApp popup on a first tap can make a
+  // customer tap "إرسال" a second time. Without this, the second tap would
+  // run the whole flow again and could get rejected by the stock check even
+  // though the FIRST tap already succeeded — which looked, from the
+  // customer's side, exactly like "the size is available yet it's refused".
+  const submitBtn = this.querySelector('button[type="submit"]');
+  if(submitBtn.disabled) return;
+  submitBtn.disabled = true;
+  const submitBtnOriginalHTML = submitBtn.innerHTML;
+
+  // Open the WhatsApp tab SYNCHRONOUSLY, right here, before any "await"
+  // below. Mobile browsers only allow window.open() to succeed when it is
+  // still inside the original tap's call stack — once the code "awaits"
+  // something (like the stock check), many mobile browsers silently block
+  // a later window.open() as a pop-up. Opening a blank tab now and filling
+  // in its address once the order is confirmed avoids that block, so
+  // "إرسال الطلب عبر واتساب" reliably opens WhatsApp instead of doing
+  // nothing (which is what was tricking customers into tapping twice).
+  const waWindow = window.open("", "_blank");
+  let waNavigated = false;
+
+  try{
+  const L = currentLang;
+  submitBtn.innerHTML = `<span>${L==="ar"?"جارٍ الإرسال...":"Envoi en cours..."}</span>`;
   const name = document.getElementById("of_name").value;
   const lastname = document.getElementById("of_lastname").value;
   const phone = document.getElementById("of_phone").value;
@@ -1509,7 +1535,6 @@ document.getElementById("orderForm").addEventListener("submit", async function(e
   const officeIdx = officeSelect.style.display !== "none" ? parseInt(officeSelect.value) : NaN;
   const chosenOffice = (!isNaN(officeIdx) && w) ? (getOfficesForWilaya(w.name)[officeIdx] || null) : null;
   const notes = document.getElementById("of_notes").value.trim();
-  const L = currentLang;
 
   if(!w){ alert(L==="ar"?"من فضلك اختاري الولاية":"Veuillez choisir la wilaya"); return; }
 
@@ -1596,7 +1621,9 @@ document.getElementById("orderForm").addEventListener("submit", async function(e
       ...(notes ? [`Remarques: ${notes}`] : [])
     ];
     const msg = encodeURIComponent(lines.join("\n"));
-    window.open(`https://wa.me/213670246200?text=${msg}`, "_blank");
+    const waUrl = `https://wa.me/213670246200?text=${msg}`;
+    if(waWindow){ waWindow.location.href = waUrl; waNavigated = true; }
+    else { window.open(waUrl, "_blank"); }
     document.getElementById("orderOverlay").classList.remove("open");
     CART = [];
     renderCart();
@@ -1712,10 +1739,23 @@ document.getElementById("orderForm").addEventListener("submit", async function(e
     ...(notes ? [`Remarques: ${notes}`] : [])
   ];
   const msg = encodeURIComponent(lines.join("\n"));
-  window.open(`https://wa.me/213670246200?text=${msg}`, "_blank");
+  const waUrl = `https://wa.me/213670246200?text=${msg}`;
+  if(waWindow){ waWindow.location.href = waUrl; waNavigated = true; }
+  else { window.open(waUrl, "_blank"); }
   document.getElementById("orderOverlay").classList.remove("open");
   OF_SIZE_ROWS = [];
   this.reset();
+  }finally{
+    // Whatever happened above (success, a validation stop, or a rejected
+    // stock check), always leave the form usable again for a next attempt...
+    submitBtn.disabled = false;
+    submitBtn.innerHTML = submitBtnOriginalHTML;
+    // ...and never leave a blank empty tab open if the order didn't
+    // actually go through (validation failed, stock ran out, etc.).
+    if(waWindow && !waNavigated){
+      try{ waWindow.close(); }catch(err){}
+    }
+  }
 });
 
 /* ============ init ============ */
