@@ -879,10 +879,33 @@ async function loadProducts(){
    Products sold without sizes have no per-size stock to track, so they're
    skipped — the store owner controls those manually with the "Disponible"
    toggle. */
+/* Turns a failed stock-check result into a precise, readable line the
+   customer (and store owner, since it ends up in the alert) can act on
+   immediately — which product/size, how many were requested, and how many
+   are truly left right now — instead of a vague "check the sizes". */
+function stockFailureDetail(stockResult, items, L){
+  if(!stockResult || !Array.isArray(stockResult.failed) || !stockResult.failed.length) return "";
+  const lines = stockResult.failed.map(f=>{
+    const it = items.find(x=>x.id===f.id && (f.size===undefined || x.size===f.size));
+    const name = it ? it.name : "";
+    if(f.size===undefined){
+      return L==="ar" ? `- ${name||"المنتج"}: غير موجود` : `- ${name||"Produit"} : introuvable`;
+    }
+    return L==="ar"
+      ? `- ${name?name+" — ":""}المقاس ${f.size}: طلبتِ ${f.needed}، المتوفر حاليًا ${f.have}`
+      : `- ${name?name+" — ":""}Taille ${f.size} : demandé ${f.needed}, disponible actuellement ${f.have}`;
+  });
+  return "\n\n" + lines.join("\n");
+}
 async function applyStockForOrderItems(items){
   // items: [{id, size, qty}] — color isn't tracked as stock, only size is.
   const lines = items.filter(it=>it.id && it.size && it.qty);
   if(!lines.length) return {ok:true};
+  // Sizes are typed by hand in the admin panel, so match them ignoring case
+  // and stray leading/trailing spaces (e.g. "L" vs "L " typed by accident) —
+  // an exact-string mismatch there would otherwise make a size fail this
+  // check EVERY time, on every device, even though it's visibly in stock.
+  const normSize = s => String(s==null?"":s).trim().toLowerCase();
   try{
     const result = await db.runTransaction(async (tx)=>{
       const ids = [...new Set(lines.map(it=>it.id))];
@@ -895,7 +918,9 @@ async function applyStockForOrderItems(items){
       const needed = {};
       lines.forEach(it=>{
         needed[it.id] = needed[it.id] || {};
-        needed[it.id][it.size] = (needed[it.id][it.size]||0) + it.qty;
+        const key = normSize(it.size);
+        needed[it.id][key] = needed[it.id][key] || {size: it.size, qty: 0};
+        needed[it.id][key].qty += it.qty;
       });
       const failed = [];
       const sizesById = {};
@@ -905,19 +930,20 @@ async function applyStockForOrderItems(items){
         const data = snap.data() || {};
         const sizes = Array.isArray(data.sizes) ? data.sizes.slice() : [];
         sizesById[id] = sizes;
-        Object.keys(needed[id]).forEach(size=>{
-          const idx = sizes.findIndex(s=>s.size===size);
+        Object.keys(needed[id]).forEach(key=>{
+          const wanted = needed[id][key];
+          const idx = sizes.findIndex(s=>normSize(s.size)===key);
           const have = idx>-1 ? (sizes[idx].qty||0) : 0;
-          if(have < needed[id][size]) failed.push({id, size});
+          if(have < wanted.qty) failed.push({id, size: wanted.size, needed: wanted.qty, have});
         });
       }
       if(failed.length) return {ok:false, failed};
       // All requested quantities are still available — apply the decrements.
       for(const id of ids){
         const sizes = sizesById[id];
-        Object.keys(needed[id]).forEach(size=>{
-          const idx = sizes.findIndex(s=>s.size===size);
-          if(idx>-1) sizes[idx] = Object.assign({}, sizes[idx], {qty: sizes[idx].qty - needed[id][size]});
+        Object.keys(needed[id]).forEach(key=>{
+          const idx = sizes.findIndex(s=>normSize(s.size)===key);
+          if(idx>-1) sizes[idx] = Object.assign({}, sizes[idx], {qty: sizes[idx].qty - needed[id][key].qty});
         });
         const update = {sizes};
         // Every size sold out -> flip the product to "Non Disponible" automatically,
@@ -928,6 +954,12 @@ async function applyStockForOrderItems(items){
       }
       return {ok:true};
     });
+    if(!result.ok && result.failed && result.failed.length){
+      // Precise diagnostic in the console: exactly which size, requested vs
+      // actually available right now — invaluable if this ever needs
+      // checking again instead of guessing.
+      console.warn("Stock check failed for:", JSON.stringify(result.failed));
+    }
     return result;
   }catch(e){
     console.error("could not apply stock for order", e);
@@ -1564,9 +1596,10 @@ document.getElementById("orderForm").addEventListener("submit", async function(e
     // told right away instead of getting an order that can't be honoured.
     const stockResult = await applyStockForOrderItems(items.map(it=>({id:it.id, size:it.size, qty:it.qty})));
     if(!stockResult.ok){
-      alert(L==="ar"
+      alert((L==="ar"
         ? "عذرًا، الكمية المطلوبة من أحد المنتجات في عربتك لم تعد متوفرة. تم تحديث الكميات المتاحة، من فضلك تحققي من العربة وحاولي مجددًا."
-        : "Désolé, la quantité demandée pour un des produits de votre panier n'est plus disponible. Les quantités ont été mises à jour, merci de vérifier votre panier et réessayer.");
+        : "Désolé, la quantité demandée pour un des produits de votre panier n'est plus disponible. Les quantités ont été mises à jour, merci de vérifier votre panier et réessayer.")
+        + stockFailureDetail(stockResult, items, L));
       renderCart();
       if(document.getElementById("orderOverlay").classList.contains("open")) renderCartSummary();
       return;
@@ -1675,9 +1708,10 @@ document.getElementById("orderForm").addEventListener("submit", async function(e
   if(p){
     const stockResult = await applyStockForOrderItems(items.map(it=>({id:it.id, size:it.size, qty:it.qty})));
     if(!stockResult.ok){
-      alert(L==="ar"
+      alert((L==="ar"
         ? "عذرًا، أحد المقاسات المطلوبة لم يعد متوفرًا بالكمية المطلوبة. من فضلك تحققي من المقاسات والكميات المحدّثة أدناه."
-        : "Désolé, une des tailles demandées n'est plus disponible en quantité suffisante. Merci de vérifier les tailles et quantités mises à jour ci-dessous.");
+        : "Désolé, une des tailles demandées n'est plus disponible en quantité suffisante. Merci de vérifier les tailles et quantités mises à jour ci-dessous.")
+        + stockFailureDetail(stockResult, items, L));
       // applyStockForOrderItems already reloaded PRODUCTS with the true,
       // current stock — re-read the product from that fresh list (not the
       // "p" captured at the top of this handler, which still points to the
