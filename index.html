@@ -884,7 +884,17 @@ async function loadProducts(){
    immediately — which product/size, how many were requested, and how many
    are truly left right now — instead of a vague "check the sizes". */
 function stockFailureDetail(stockResult, items, L){
-  if(!stockResult || !Array.isArray(stockResult.failed) || !stockResult.failed.length) return "";
+  if(!stockResult) return "";
+  // A real technical error (e.g. a database permission problem) is a
+  // completely different situation from a genuine size shortage — say so
+  // plainly and show the raw error, instead of implying a size ran out.
+  if(stockResult.error){
+    const raw = stockResult.errorMessage || "";
+    return L==="ar"
+      ? `\n\n(هذا ليس نقصًا حقيقيًا في المخزون — حدث خطأ تقني منع التحقق من الكمية${raw?(": "+raw):""}. أرسلي هذا النص بالكامل للدعم التقني.)`
+      : `\n\n(Ceci n'est pas une vraie rupture de stock — une erreur technique a empêché la vérification${raw?(" : "+raw):""}. Merci d'envoyer ce texte complet au support technique.)`;
+  }
+  if(!Array.isArray(stockResult.failed) || !stockResult.failed.length) return "";
   const lines = stockResult.failed.map(f=>{
     const it = items.find(x=>x.id===f.id && (f.size===undefined || x.size===f.size));
     const name = it ? it.name : "";
@@ -963,7 +973,11 @@ async function applyStockForOrderItems(items){
     return result;
   }catch(e){
     console.error("could not apply stock for order", e);
-    return {ok:false, failed:[], error:true};
+    // Surface the REAL technical error (permission-denied, network, etc.)
+    // instead of swallowing it — this is NOT a "size out of stock" case,
+    // it's a failure to even check the stock, and needs a different
+    // message so it isn't mistaken for a real shortage.
+    return {ok:false, failed:[], error:true, errorMessage: (e && (e.message||e.code)) ? (e.code?`${e.code}: ${e.message||""}`:e.message) : String(e)};
   }finally{
     // Refresh the in-memory catalogue right away so this browser's own view
     // (out-of-stock labels, size dropdowns) reflects the new quantities too,
