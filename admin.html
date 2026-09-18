@@ -383,7 +383,7 @@ tr:last-child td{border-bottom:none;}
         الألوان المتوفرة
         <div class="add-img-row">
           <input type="color" id="p_colorinput" value="#c98a9c" style="width:48px;padding:2px;">
-          <input type="text" id="p_colorname" placeholder="اسم اللون (مثال: وردي)" style="flex:1;">
+          <input type="text" id="p_colorname" placeholder="اسم اللون (مثال: وردي)" style="flex:1;" onkeydown="if(event.key==='Enter'){event.preventDefault();document.getElementById('addColorBtn').click();}">
           <button type="button" class="btn btn-ghost" id="addColorBtn">إضافة</button>
         </div>
         <div class="chip-list" id="colorList"></div>
@@ -913,6 +913,14 @@ document.getElementById("saveProductBtn").onclick = async ()=>{
   const name = document.getElementById("p_name").value.trim();
   const price = parseFloat(document.getElementById("p_price").value);
   if(!name || isNaN(price)){ alert("الرجاء إدخال اسم المنتج والسعر"); return; }
+  // Safety net: if the admin typed a color name (or picked a swatch) but
+  // forgot to press "إضافة" before saving, add it now instead of silently
+  // losing it — this is exactly what made the inventory page show "بدون
+  // ألوان معرّفة" even though a color had clearly been filled in.
+  const pendingColorName = document.getElementById("p_colorname").value.trim();
+  if(pendingColorName){
+    document.getElementById("addColorBtn").click();
+  }
   const oldPrice = document.getElementById("p_oldprice").value ? parseFloat(document.getElementById("p_oldprice").value) : null;
   const category = document.getElementById("p_category").value;
   const description = document.getElementById("p_desc").value.trim();
