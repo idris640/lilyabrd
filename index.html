@@ -1812,14 +1812,21 @@ document.getElementById("orderForm").addEventListener("submit", async function(e
   renderProducts();
   applyLang("ar");
   applyLivePricing();
-  // live refresh if admin updates products while this tab is open
+  // Live refresh if the admin updates products while this tab is open.
+  // Interval kept fairly long (60s) and skipped while the tab isn't visible,
+  // because this reads the whole products collection every time it runs —
+  // on a free Firestore plan, doing this too often across many open
+  // customer tabs can exhaust the daily read quota and make the WHOLE site
+  // (including checkout) start failing with "resource-exhausted" errors,
+  // which looks like a stock bug but isn't one.
   setInterval(async ()=>{
+    if(document.hidden) return;
     const fresh = await loadProducts();
     if(JSON.stringify(fresh) !== JSON.stringify(PRODUCTS)){
       PRODUCTS = fresh;
       renderProducts();
     }
-  }, 8000);
+  }, 60000);
 })();
 </script>
 </body>
