@@ -229,7 +229,7 @@ tr:last-child td{border-bottom:none;}
       <div class="view-head">
         <h2>المخزون</h2>
         <div style="display:flex;align-items:center;gap:14px;">
-          <span class="inv-live-note"><span class="inv-live-dot"></span>تحديث تلقائي كل 8 ثوانٍ</span>
+          <span class="inv-live-note"><span class="inv-live-dot"></span>تحديث تلقائي كل 30 ثانية</span>
           <button class="btn btn-ghost" id="refreshInventory">تحديث</button>
         </div>
       </div>
@@ -661,18 +661,25 @@ async function renderInventory(filter){
   renderDash(); // low/out-of-stock counters on the dashboard stay in sync too
   startInventoryPolling();
 }
-/* Keeps the inventory page live while it's open: every 8s it silently
+/* Keeps the inventory page live while it's open: every 30s it silently
    re-pulls products/orders and re-renders, so a new order placed by a
    customer shows up here — with the red "just dropped" flash — without
-   the admin needing to click "تحديث". Stops as soon as she leaves the tab
-   or logs out, so it doesn't keep reading Firestore in the background. */
+   the admin needing to click "تحديث". Stops as soon as she leaves the tab,
+   switches to another browser tab, or logs out, so it doesn't keep reading
+   Firestore in the background. Kept to a longer interval (and paused while
+   the tab isn't visible) on purpose: this reads the whole products AND
+   orders collections every time it fires, and doing that too often is what
+   can exhaust a free Firestore plan's daily quota and make the WHOLE site
+   — including customer checkout — start failing with "resource-exhausted"
+   errors, which looks exactly like a stock bug but isn't one. */
 function startInventoryPolling(){
   stopInventoryPolling();
   inventoryPollTimer = setInterval(()=>{
     const view = document.getElementById("view-inventory");
     if(!view || !view.classList.contains("active")){ stopInventoryPolling(); return; }
+    if(document.hidden) return;
     renderInventory();
-  }, 8000);
+  }, 30000);
 }
 function stopInventoryPolling(){
   if(inventoryPollTimer){ clearInterval(inventoryPollTimer); inventoryPollTimer = null; }
