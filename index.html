@@ -1144,15 +1144,16 @@ function renderCart(){
       const inStock = availableSizesFor(p);
       sizeHTML = `<div class="opt-group"><span class="opt-label">${dict.opt_size[L]}</span>
         <select onchange="updateCartItem('${l.key}','size',this.value)">
-          ${inStock.map(s=>`<option value="${s.size}" ${s.size===l.size?"selected":""}>${s.size}</option>`).join("")}
+          ${inStock.map(s=>`<option value="${s.size}" ${s.size===l.size?"selected":""}>${s.size} — ${L==='ar'?('متبقي '+s.qty):('reste '+s.qty)}</option>`).join("")}
         </select></div>`;
       const used = new Set(CART.filter(x=>x.id===l.id).map(x=>x.size));
       if(inStock.some(s=>!used.has(s.size))){
         addSizeHTML = `<button type="button" class="cart-add-size" onclick="addAnotherSizeToCart('${l.id}')" style="background:none;border:1px dashed var(--rose);color:var(--rose);border-radius:20px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer;align-self:flex-start;">+ ${L==='ar'?'مقاس آخر':'Autre taille'}</button>`;
       }
     }
+    const maxQty = (p.sizes && p.sizes.length) ? Math.max(1, (p.sizes.find(x=>x.size===l.size)||{}).qty||0) : "";
     const qtyHTML = `<div class="opt-group"><span class="opt-label">${dict.opt_qty[L]}</span>
-        <input type="number" min="1" value="${l.qty}" onchange="updateCartItem('${l.key}','qty',this.value)"></div>`;
+        <input type="number" min="1" ${maxQty?`max="${maxQty}"`:""} value="${l.qty}" onchange="updateCartItem('${l.key}','qty',this.value)"></div>`;
     return `<div class="cart-item">
       <div class="cart-item-top">
         <div class="thumb">${img}</div>
@@ -1166,8 +1167,25 @@ function renderCart(){
 function updateCartItem(key, field, value){
   const line = CART.find(x=>x.key===key);
   if(!line) return;
-  if(field==="qty"){ line.qty = Math.max(1, parseInt(value)||1); }
-  else{ line[field] = value; }
+  const p = PRODUCTS.find(x=>x.id===line.id);
+  if(field==="qty"){
+    // Never let the cart hold more of a size than is actually left in stock.
+    let max = Infinity;
+    if(p && p.sizes && p.sizes.length){
+      const s = p.sizes.find(x=>x.size===line.size);
+      max = s ? Math.max(1, s.qty||0) : 1;
+    }
+    line.qty = Math.max(1, Math.min(max, parseInt(value)||1));
+  }
+  else{
+    line[field] = value;
+    // Changing the size can change how much stock is left, so re-clamp qty.
+    if(field==="size" && p && p.sizes && p.sizes.length){
+      const s = p.sizes.find(x=>x.size===value);
+      const max = s ? Math.max(1, s.qty||0) : 1;
+      line.qty = Math.min(line.qty, max);
+    }
+  }
   renderCart();
   if(ORDER_MODE==="cart" && document.getElementById("orderOverlay").classList.contains("open")){
     renderCartSummary();
@@ -1273,20 +1291,30 @@ function renderSizeRows(p){
   box.innerHTML = OF_SIZE_ROWS.map((row,i)=>`
     <div style="display:flex;gap:8px;align-items:center;">
       <select class="of-size-row-select" data-idx="${i}" style="flex:1;padding:10px 11px;border:1.5px solid var(--line);border-radius:7px;font-size:14px;">
-        ${inStock.map(s=>`<option value="${s.size}" ${s.size===row.size?"selected":""}>${s.size}</option>`).join("")}
+        ${inStock.map(s=>`<option value="${s.size}" ${s.size===row.size?"selected":""}>${s.size} — ${currentLang==='ar'?('متبقي '+s.qty):('reste '+s.qty)}</option>`).join("")}
       </select>
-      <input type="number" class="of-size-row-qty" data-idx="${i}" min="1" value="${row.qty}" style="width:72px;padding:10px 8px;border:1.5px solid var(--line);border-radius:7px;font-size:14px;">
+      <input type="number" class="of-size-row-qty" data-idx="${i}" min="1" max="${(inStock.find(s=>s.size===row.size)||{}).qty||1}" value="${row.qty}" style="width:72px;padding:10px 8px;border:1.5px solid var(--line);border-radius:7px;font-size:14px;">
       ${OF_SIZE_ROWS.length>1?`<button type="button" class="of-size-row-remove" data-idx="${i}" style="background:rgba(0,0,0,.12);border:none;border-radius:50%;width:28px;height:28px;cursor:pointer;font-size:13px;flex-shrink:0;">×</button>`:""}
     </div>`).join("");
   box.querySelectorAll(".of-size-row-select").forEach(sel=>{
     sel.addEventListener("change", e=>{
-      OF_SIZE_ROWS[+e.target.dataset.idx].size = e.target.value;
+      const idx = +e.target.dataset.idx;
+      OF_SIZE_ROWS[idx].size = e.target.value;
+      // Clamp the quantity to whatever is actually left of the newly
+      // chosen size, so switching size never leaves a requested qty
+      // higher than what's in stock.
+      const avail = (inStock.find(s=>s.size===e.target.value)||{}).qty || 1;
+      OF_SIZE_ROWS[idx].qty = Math.min(OF_SIZE_ROWS[idx].qty, avail);
+      renderSizeRows(p);
       updatePriceBreakdown();
     });
   });
   box.querySelectorAll(".of-size-row-qty").forEach(inp=>{
     const onChange = e=>{
-      OF_SIZE_ROWS[+e.target.dataset.idx].qty = Math.max(1, parseInt(e.target.value)||1);
+      const idx = +e.target.dataset.idx;
+      const avail = (inStock.find(s=>s.size===OF_SIZE_ROWS[idx].size)||{}).qty || 1;
+      OF_SIZE_ROWS[idx].qty = Math.max(1, Math.min(avail, parseInt(e.target.value)||1));
+      e.target.value = OF_SIZE_ROWS[idx].qty;
       updatePriceBreakdown();
     };
     inp.addEventListener("input", onChange);
