@@ -162,7 +162,6 @@ tr:last-child td{border-bottom:none;}
     <div class="err" id="loginErr"></div>
     <input type="password" id="loginPass" placeholder="كلمة المرور">
     <button id="loginBtn">دخول</button>
-    <p style="margin-top:14px;font-size:11.5px;color:#a49b9c;">كلمة المرور الافتراضية: lilya2026 — يمكن تغييرها من الإعدادات بعد الدخول</p>
   </div>
 </div>
 
@@ -309,17 +308,7 @@ tr:last-child td{border-bottom:none;}
         <div class="err" id="passErr" style="margin-top:10px;"></div>
       </div>
       <div class="settings-card" style="margin-top:16px;">
-        <h3>نشر المتجر (Cloudflare)</h3>
-        <p style="font-size:13px;color:#786f70;margin:0 0 10px;">بعد كل تعديل على المنتجات يُعاد نشر صفحة المتجر تلقائيًا. ضعي هنا رابط Deploy Hook من Cloudflare Pages.</p>
-        <label style="font-size:13px;font-weight:700;">رابط النشر (Deploy Hook)</label>
-        <input type="url" id="deployHook" placeholder="https://api.cloudflare.com/client/v4/pages/webhooks/deploy_hooks/...">
-        <button class="btn btn-primary" id="saveHookBtn">حفظ الرابط</button>
-        <button class="btn" id="publishNowBtn" style="margin-inline-start:8px;">نشر التحديثات الآن</button>
-        <div class="err" id="hookMsg" style="margin-top:10px;color:var(--green);"></div>
-      </div>
-      <div class="settings-card" style="margin-top:16px;">
         <h3>مفتاح Noest</h3>
-        <p style="font-size:13px;color:#786f70;margin:0 0 10px;">نفس كلمة السر التي وضعتِها في Cloudflare باسم ADMIN_KEY. تُحفظ على هذا الجهاز فقط.</p>
         <input type="password" id="noestKey" placeholder="ADMIN_KEY">
         <button class="btn btn-primary" id="saveNoestKeyBtn">حفظ المفتاح</button>
         <div class="err" id="noestKeyMsg" style="margin-top:10px;color:var(--green);"></div>
@@ -530,8 +519,10 @@ function makeThumb(src){
    per visit instead of every product, so stock and prices stay live while
    the catalogue (names, photos) is served as static files. */
 const liveRef = ()=>db.collection("config").doc("live");
-function liveEntry(p){
-  return {sizes:p.sizes||[], available:p.available!==false, price:p.price??null, oldPrice:p.oldPrice??null};
+function liveEntry(p, touched){
+  const e = {sizes:p.sizes||[], available:p.available!==false, price:p.price??null, oldPrice:p.oldPrice??null};
+  if(touched) e.updatedAt = Date.now(); // tells the storefront this product changed after the last publish
+  return e;
 }
 async function loadProducts(){
   try{
@@ -572,7 +563,7 @@ async function triggerPublish(silent){
   try{
     const s = await db.collection("config").doc("settings").get();
     const hook = s.exists ? (s.data()||{}).deployHook : "";
-    if(!hook){ if(!silent) alert("لم يتم ضبط رابط النشر بعد (الإعدادات ← رابط النشر)."); return false; }
+    if(!hook) return false; // optional: config/settings.deployHook in Firebase
     await fetch(hook, {method:"POST", mode:"no-cors"});
     if(!silent) alert("تم طلب النشر. ستظهر التحديثات في المتجر خلال دقيقة أو دقيقتين.");
     return true;
@@ -584,7 +575,7 @@ async function saveProductDoc(id, data){
   // photos first: if anything fails after this, the old product doc is untouched
   await mediaRef(id).set({images, imagesSecondary});
   await db.collection("products").doc(id).set(Object.assign({}, rest, {thumb:newThumb, mediaSplit:true}));
-  try{ await liveRef().set({[id]: liveEntry(rest)}, {merge:true}); }catch(e){ console.error("live update failed", e); }
+  try{ await liveRef().set({[id]: liveEntry(rest, true)}, {merge:true}); }catch(e){ console.error("live update failed", e); }
 }
 async function deleteProductDoc(id){
   try{ await mediaRef(id).delete(); }catch(e){ console.error(e); }
@@ -1585,15 +1576,7 @@ document.getElementById("changePassBtn").onclick = async ()=>{
   document.getElementById("newPass").value = "";
 };
 
-/* ---------- publish settings ---------- */
-document.getElementById("saveHookBtn").onclick = async ()=>{
-  const v = document.getElementById("deployHook").value.trim();
-  try{
-    await db.collection("config").doc("settings").set({deployHook: v}, {merge:true});
-    document.getElementById("hookMsg").textContent = v ? "تم حفظ رابط النشر." : "تم مسح رابط النشر.";
-  }catch(e){ alert("تعذّر الحفظ: "+(e.message||e)); }
-};
-document.getElementById("publishNowBtn").onclick = ()=>triggerPublish(false);
+/* ---------- Noest key (this device only) ---------- */
 try{ document.getElementById("noestKey").value = localStorage.getItem("noestAdminKey") || ""; }catch(e){}
 document.getElementById("saveNoestKeyBtn").onclick = ()=>{
   try{
@@ -1601,11 +1584,6 @@ document.getElementById("saveNoestKeyBtn").onclick = ()=>{
     document.getElementById("noestKeyMsg").textContent = "تم حفظ المفتاح على هذا الجهاز.";
   }catch(e){ alert("تعذّر الحفظ على هذا المتصفح."); }
 };
-db.collection("config").doc("settings").get().then(s=>{
-  const h = s.exists ? (s.data()||{}).deployHook : "";
-  if(h) document.getElementById("deployHook").value = h;
-}).catch(()=>{});
-
 /* ---------- boot ---------- */
 async function boot(){
   PRODUCTS = await loadProducts();

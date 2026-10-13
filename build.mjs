@@ -74,6 +74,7 @@ async function getMedia(id) {
 
 // data:image/jpeg;base64,... -> /img/<hash>.jpg written to dist. URLs are kept as-is.
 const written = new Map();
+const BUILT_AT = Date.now();
 export async function imageToFile(src, outDir = OUT) {
   if (!src || typeof src !== "string") return "";
   const m = /^data:(image\/[a-z0-9.+-]+);base64,(.*)$/is.exec(src);
@@ -100,7 +101,7 @@ export async function buildCatalog(products, mediaFor, outDir = OUT) {
     for (const s of media.imagesSecondary || []) imagesSecondary.push(await imageToFile(s, outDir));
     const thumb = (await imageToFile(p.thumb, outDir)) || images[0] || imagesSecondary[0] || "";
     const { images: _a, imagesSecondary: _b, thumb: _t, ...rest } = p;
-    catalog.push(Object.assign(rest, { thumb }));
+    catalog.push(Object.assign(rest, { thumb, builtAt: BUILT_AT }));
     await writeFile(`${outDir}/media/${encodeURIComponent(p.id)}.json`, JSON.stringify({ images: images.filter(Boolean), imagesSecondary: imagesSecondary.filter(Boolean) }));
   }
   await writeFile(`${outDir}/catalog.json`, JSON.stringify(catalog));

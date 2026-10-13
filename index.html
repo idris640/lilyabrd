@@ -893,7 +893,28 @@ async function loadProducts(){
   }catch(e){ /* no static catalogue: use Firestore */ }
   if(catalog){
     catalog.forEach(p=>{ p.fromCatalog = true; p.mediaSplit = true; });
-    return applyLive(catalog, await loadLive());
+    const live = await loadLive();
+    // Products added or edited in the dashboard after the last publish are
+    // read straight from Firebase (just those few), so the shop is never
+    // out of date even before the next automatic publish.
+    if(live){
+      const byId = {}; catalog.forEach(p=>{ byId[p.id] = p; });
+      const stale = Object.keys(live).filter(id=>{
+        const l = live[id]; if(!l || l.deleted) return false;
+        const c = byId[id];
+        return !c || (l.updatedAt && l.updatedAt > (c.builtAt||0));
+      }).slice(0, 30);
+      await Promise.all(stale.map(async id=>{
+        try{
+          const d = await db.collection("products").doc(id).get();
+          if(!d.exists) return;
+          const fresh = Object.assign({id}, d.data());
+          if(byId[id]) Object.assign(byId[id], fresh, {fromCatalog:false});
+          else catalog.push(Object.assign(fresh, {fromCatalog:false}));
+        }catch(e){ console.error("fresh product read failed", id, e); }
+      }));
+    }
+    return applyLive(catalog, live);
   }
   try{
     const snap = await db.collection("products").get();
