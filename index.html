@@ -518,7 +518,7 @@
       </label>
       <textarea id="of_notes" rows="3" data-t-ph="f_notes_ph" placeholder="أي تفاصيل إضافية تريدين إخبارنا بها..." style="resize:vertical;min-height:60px;"></textarea>
       <div class="price-breakdown" id="priceBreakdown"></div>
-      <button type="submit" class="btn btn-primary" style="justify-content:center;margin-top:6px;"><span data-t="f_submit">إرسال الطلب عبر واتساب</span></button>
+      <button type="submit" class="btn btn-primary" style="justify-content:center;margin-top:6px;"><span data-t="f_submit">تأكيد الطلب</span></button>
     </form>
   </div>
 </div>
@@ -626,7 +626,7 @@ const dict = {
   f_qty:{ar:"الكمية",fr:"Quantité"},
   f_notes:{ar:"ملاحظات (اختياري)",fr:"Remarques (optionnel)"},
   f_notes_ph:{ar:"أي تفاصيل إضافية تريدين إخبارنا بها...",fr:"Toute précision que vous voulez nous indiquer..."},
-  f_submit:{ar:"إرسال الطلب عبر واتساب",fr:"Envoyer via WhatsApp"},
+  f_submit:{ar:"تأكيد الطلب",fr:"Confirmer la commande"},
   buy_now:{ar:"اشتري الآن",fr:"Acheter"},
   no_products:{ar:"لا توجد منتجات في هذا القسم حاليا",fr:"Aucun produit dans cette catégorie pour le moment"},
   opt_color:{ar:"اللون",fr:"Couleur"},
@@ -857,7 +857,41 @@ WILAYAS.forEach(w=>{
    (not one big document for the whole list), so a single product's
    photos never push the whole store past Firestore's 1MB per-document
    limit. Orders are added as individual documents in "orders". */
+/* The catalogue (names, descriptions, photos) is served as static files
+   built by build.mjs and published on Cloudflare Pages, which has no
+   traffic limit. Only ONE small Firestore document (config/live: stock,
+   availability, prices) is read per visit, so thousands of visitors a day
+   stay far inside Firebase's free quota. If the static catalogue is
+   missing (e.g. not deployed with the build step), it falls back to
+   reading the products from Firestore like before. */
+async function loadLive(){
+  try{
+    const d = await db.collection("config").doc("live").get();
+    return d.exists ? (d.data()||{}) : null;
+  }catch(e){ console.error("live read failed", e); return null; }
+}
+function applyLive(list, live){
+  if(!live || !Object.keys(live).length) return list;
+  return list.filter(p=>live[p.id]).map(p=>{
+    const l = live[p.id];
+    return Object.assign({}, p, {
+      sizes: Array.isArray(l.sizes) ? l.sizes : p.sizes,
+      available: l.available !== false,
+      price: l.price ?? p.price,
+      oldPrice: l.oldPrice ?? null
+    });
+  });
+}
 async function loadProducts(){
+  let catalog = null;
+  try{
+    const r = await fetch("/catalog.json", {cache:"no-cache"});
+    if(r.ok){ const j = await r.json(); if(Array.isArray(j)) catalog = j; }
+  }catch(e){ /* no static catalogue: use Firestore */ }
+  if(catalog){
+    catalog.forEach(p=>{ p.fromCatalog = true; p.mediaSplit = true; });
+    return applyLive(catalog, await loadLive());
+  }
   try{
     const snap = await db.collection("products").get();
     return snap.docs.map(d=>Object.assign({id:d.id}, d.data()));
@@ -907,10 +941,19 @@ function stockFailureDetail(stockResult, items, L){
   });
   return "\n\n" + lines.join("\n");
 }
-async function applyStockForOrderItems(items){
+async function applyStockForOrderItems(items, order){
   // items: [{id, size, qty}] — color isn't tracked as stock, only size is.
+  // order (optional): saved INSIDE the same transaction, so the stock is
+  // only taken if the order is really saved, and the order is only saved
+  // if the stock is really available. Nothing can be half-done.
   const lines = items.filter(it=>it.id && it.size && it.qty);
-  if(!lines.length) return {ok:true};
+  const orderRef = order ? db.collection("orders").doc(order.id) : null;
+  const orderData = order ? (({id, ...rest})=>rest)(order) : null;
+  if(!lines.length){
+    if(!order) return {ok:true};
+    try{ await orderRef.set(orderData); return {ok:true}; }
+    catch(e){ console.error("could not save order", e); return {ok:false, failed:[], error:true, errorMessage:(e&&(e.message||e.code))||String(e)}; }
+  }
   // Sizes are typed by hand in the admin panel, so match them ignoring case
   // and stray leading/trailing spaces (e.g. "L" vs "L " typed by accident) —
   // an exact-string mismatch there would otherwise make a size fail this
@@ -934,10 +977,12 @@ async function applyStockForOrderItems(items){
       });
       const failed = [];
       const sizesById = {};
+      const dataById = {};
       for(const id of ids){
         const snap = snaps[id];
         if(!snap.exists){ failed.push({id}); continue; }
         const data = snap.data() || {};
+        dataById[id] = data;
         const sizes = Array.isArray(data.sizes) ? data.sizes.slice() : [];
         sizesById[id] = sizes;
         Object.keys(needed[id]).forEach(key=>{
@@ -948,6 +993,7 @@ async function applyStockForOrderItems(items){
         });
       }
       if(failed.length) return {ok:false, failed};
+      const liveUpdate = {};
       // All requested quantities are still available — apply the decrements.
       for(const id of ids){
         const sizes = sizesById[id];
@@ -961,7 +1007,11 @@ async function applyStockForOrderItems(items){
         const allSoldOut = sizes.length > 0 && sizes.every(s=>(s.qty||0) <= 0);
         if(allSoldOut) update.available = false;
         tx.update(db.collection("products").doc(id), update);
+        const d = dataById[id];
+        liveUpdate[id] = {sizes, available: allSoldOut ? false : (d.available !== false), price: d.price ?? null, oldPrice: d.oldPrice ?? null};
       }
+      tx.set(db.collection("config").doc("live"), liveUpdate, {merge:true});
+      if(orderRef) tx.set(orderRef, orderData);
       return {ok:true};
     });
     if(!result.ok && result.failed && result.failed.length){
@@ -1005,6 +1055,35 @@ async function hasPendingOrderForPhone(phone){
   }
 }
 
+/* Same rule for the customer's full name: while an earlier order under the
+   same first name + last name is still pending, a new one is refused.
+   Names are compared ignoring case, extra spaces and Arabic diacritics, so
+   "هديل " and "هديل" or "Sara" and "sara" count as the same person. */
+function nameKeyOf(name, lastname){
+  const norm = s => String(s||"").normalize("NFKC")
+    .replace(/[\u064B-\u0652\u0640]/g,"")      // harakat + tatweel
+    .replace(/[أإآ]/g,"ا").replace(/ى/g,"ي").replace(/ة/g,"ه")
+    .toLowerCase().replace(/\s+/g," ").trim();
+  return norm(name) + "|" + norm(lastname);
+}
+async function hasPendingOrderForName(name, lastname){
+  const key = nameKeyOf(name, lastname);
+  if(key === "|") return false;
+  const isPending = d => { const x = d.data(); return !x.status || x.status === "pending"; };
+  try{
+    // new orders carry nameKey; older ones are matched on the typed name
+    const [byKey, byName] = await Promise.all([
+      db.collection("orders").where("nameKey","==",key).get(),
+      db.collection("orders").where("lastname","==",String(lastname||"")).get()
+    ]);
+    if(byKey.docs.some(isPending)) return true;
+    return byName.docs.some(d=>isPending(d) && nameKeyOf(d.data().name, d.data().lastname) === key);
+  }catch(e){
+    console.error("could not check for a duplicate name", e);
+    return false; // never block a real order because the check itself failed
+  }
+}
+
 let PRODUCTS = [];
 let activeCat = "all";
 
@@ -1026,7 +1105,7 @@ function availableSizesFor(p){
 }
 
 function productCard(p){
-  const img = (p.images && p.images[0]) ? `<img src="${p.images[0]}" alt="">` : `<span class="ph">lilya</span>`;
+  const img = pThumb(p) ? `<img src="${pThumb(p)}" alt="" loading="lazy">` : `<span class="ph">lilya</span>`;
   const promo = p.oldPrice ? `<span class="promo-tag">${currentLang==='ar'?'تخفيض':'PROMO'}</span>` : "";
   const unavailable = isProductUnavailable(p);
   const swatches = (p.colors && p.colors.length) ? `<div class="swatch-row">${p.colors.map(c=>`<span class="sw" style="background:${c.hex}" title="${c.name||''}"></span>`).join("")}</div>` : "";
@@ -1130,7 +1209,7 @@ function renderCart(){
   lines.innerHTML = CART.map(l=>{
     const p = PRODUCTS.find(x=>x.id===l.id);
     if(!p) return "";
-    const img = (p.images && p.images[0]) ? `<img src="${p.images[0]}">` : "";
+    const img = pThumb(p) ? `<img src="${pThumb(p)}">` : "";
     let colorHTML = "";
     if(p.colors && p.colors.length){
       colorHTML = `<div class="opt-group"><span class="opt-label">${dict.opt_color[L]}</span>
@@ -1225,7 +1304,7 @@ document.getElementById("searchInput").addEventListener("input", e=>{
     const badge = unavailable ? `<span class="stock-badge no">${currentLang==='ar'?'غير متوفر':'Non Disponible'}</span>` : "";
     return `
     <div class="sr-item" ${clickAttr} style="${unavailable?'opacity:.55;cursor:default;':''}">
-      <div class="th">${p.images&&p.images[0]?`<img src="${p.images[0]}">`:""}</div>
+      <div class="th">${pThumb(p)?`<img src="${pThumb(p)}">`:""}</div>
       <div><b>${p.name}</b><br><small>${money(p.price)}</small> ${badge}</div>
     </div>`;
   }).join("") || `<div class="empty-note">${dict.no_products[currentLang]}</div>`;
@@ -1351,14 +1430,46 @@ document.getElementById("of_addSizeRow").addEventListener("click", ()=>{
   renderSizeRows(p);
   updatePriceBreakdown();
 });
+/* Full photos are stored apart from the product (products/{id}/media/main)
+   and loaded only when the customer opens that product, then kept in memory. */
+const MEDIA_CACHE = {};
+function pThumb(p){ return p.thumb || (p.images && p.images[0]) || ""; }
+async function loadProductMedia(p){
+  if(!p.mediaSplit) return {images:p.images||[], imagesSecondary:p.imagesSecondary||[]};
+  if(MEDIA_CACHE[p.id]) return MEDIA_CACHE[p.id];
+  if(p.fromCatalog){
+    try{
+      const r = await fetch("/media/"+encodeURIComponent(p.id)+".json");
+      if(r.ok){ const d = await r.json(); MEDIA_CACHE[p.id] = {images:d.images||[], imagesSecondary:d.imagesSecondary||[]}; return MEDIA_CACHE[p.id]; }
+    }catch(e){ console.error("static media failed", e); }
+  }
+  try{
+    const m = await db.collection("products").doc(p.id).collection("media").doc("main").get();
+    const d = m.exists ? m.data() : {};
+    MEDIA_CACHE[p.id] = {images:d.images||[], imagesSecondary:d.imagesSecondary||[]};
+  }catch(e){ console.error("media load failed", e); return {images:[pThumb(p)].filter(Boolean), imagesSecondary:[]}; }
+  return MEDIA_CACHE[p.id];
+}
 function openProductGallery(productId){
   const p = PRODUCTS.find(x=>x.id===productId);
   if(!p) return;
+  if(p.mediaSplit && !MEDIA_CACHE[p.id] && !isProductUnavailable(p)){
+    // show the thumbnail right away, then swap in the full photos
+    renderProductGallery(p, {images:[pThumb(p)].filter(Boolean), imagesSecondary:[]});
+    loadProductMedia(p).then(m=>{
+      if(document.getElementById("galleryOverlay").classList.contains("open")
+         && document.getElementById("galleryName").textContent === (p.name||"")) renderProductGallery(p, m);
+    });
+    return;
+  }
+  loadProductMedia(p).then(m=>renderProductGallery(p, m));
+}
+function renderProductGallery(p, media){
   if(isProductUnavailable(p)){
     alert(currentLang==='ar' ? "عذرًا، هذا المنتج غير متوفر حاليًا." : "Désolé, ce produit n'est pas disponible actuellement.");
     return;
   }
-  const images = [...(p.images||[]), ...(p.imagesSecondary||[])];
+  const images = [...(media.images||[]), ...(media.imagesSecondary||[])];
   const mainImg = document.getElementById("galleryMainImg");
   mainImg.src = images[0] || "";
   document.getElementById("galleryThumbs").innerHTML = images.map((img,i)=>`
@@ -1570,6 +1681,27 @@ function updatePriceBreakdown(){
   document.getElementById(id).addEventListener("input", updatePriceBreakdown);
 });
 
+function showOrderSuccess(){
+  let ov = document.getElementById("orderSuccessOverlay");
+  if(!ov){
+    ov = document.createElement("div");
+    ov.id = "orderSuccessOverlay";
+    ov.style.cssText = "position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px;";
+    ov.innerHTML = '<div style="background:#fff;border-radius:14px;padding:28px 24px;max-width:360px;width:100%;text-align:center;font-family:Cairo,sans-serif;">'
+      + '<p dir="rtl" style="margin:0 0 20px;font-size:17px;font-weight:700;color:var(--ink,#3b3536);line-height:1.7;">تم قبول طلبكم سوف نتصل بكم في أقرب وقت</p>'
+      + '<button type="button" style="border:none;border-radius:8px;background:var(--ink,#3b3536);color:#fff;font-weight:700;padding:10px 28px;cursor:pointer;font-family:inherit;">OK</button>'
+      + '</div>';
+    ov.addEventListener("click", ()=>{ ov.style.display = "none"; });
+    document.body.appendChild(ov);
+  }
+  ov.style.display = "flex";
+}
+function orderSaveFailedMessage(L){
+  return L==="ar"
+    ? "تعذّر إرسال الطلب بسبب مشكلة في الاتصال. من فضلك تحققي من الإنترنت وأعيدي المحاولة."
+    : "La commande n'a pas pu être envoyée (problème de connexion). Vérifiez votre connexion et réessayez.";
+}
+
 document.getElementById("orderForm").addEventListener("submit", async function(e){
   e.preventDefault();
 
@@ -1592,8 +1724,6 @@ document.getElementById("orderForm").addEventListener("submit", async function(e
   // in its address once the order is confirmed avoids that block, so
   // "إرسال الطلب عبر واتساب" reliably opens WhatsApp instead of doing
   // nothing (which is what was tricking customers into tapping twice).
-  const waWindow = window.open("", "_blank");
-  let waNavigated = false;
 
   try{
   const L = currentLang;
@@ -1619,6 +1749,13 @@ document.getElementById("orderForm").addEventListener("submit", async function(e
     return;
   }
 
+  if(await hasPendingOrderForName(name, lastname)){
+    alert(L==="ar"
+      ? "توجد طلبية سابقة بنفس الاسم واللقب بانتظار التأكيد. من فضلك انتظري تأكيدها قبل إرسال طلبية جديدة، أو تواصلي معنا عبر واتساب لتعديلها."
+      : "Une commande au même nom et prénom est déjà en attente. Merci d'attendre sa confirmation avant d'en envoyer une nouvelle, ou contactez-nous sur WhatsApp pour la modifier.");
+    return;
+  }
+
   const shipRaw = deliv==="home" ? w.home : w.desk;
   const ship = (shipRaw===null||shipRaw===undefined) ? w.home : shipRaw;
   const delivLabel = deliv==="home" ? "Domicile" : "Stop Desk";
@@ -1632,11 +1769,24 @@ document.getElementById("orderForm").addEventListener("submit", async function(e
     }).filter(Boolean);
     if(!items.length) return;
 
-    // Check and reserve stock FIRST, atomically, before the order is ever
-    // created or sent — if any item ran out (someone else bought the last
-    // piece just now, for example), nothing is written and the customer is
-    // told right away instead of getting an order that can't be honoured.
-    const stockResult = await applyStockForOrderItems(items.map(it=>({id:it.id, size:it.size, qty:it.qty})));
+    const subtotal = items.reduce((s,it)=>s+it.price*it.qty,0);
+    const total = subtotal + ship;
+
+    const order = {
+      id: "o_"+Date.now(),
+      createdAt: new Date().toISOString(),
+      status: "pending", // pending -> confirmed -> sent_to_noest (managed from the admin dashboard)
+      items,
+      name, lastname, phone, nameKey: nameKeyOf(name, lastname),
+      wilaya: w.name, wilayaCode: w.code, commune,
+      deliv: delivLabel,
+      office: chosenOffice ? {label:chosenOffice.label, address:chosenOffice.address, phones:chosenOffice.phones} : null,
+      shipping: ship, subtotal, total, notes
+    };
+
+    // Reserve stock AND save the order in one atomic step.
+    const stockResult = await applyStockForOrderItems(items.map(it=>({id:it.id, size:it.size, qty:it.qty})), order);
+    if(!stockResult.ok && stockResult.error){ alert(orderSaveFailedMessage(L)); return; }
     if(!stockResult.ok){
       alert((L==="ar"
         ? "عذرًا، الكمية المطلوبة من أحد المنتجات في عربتك لم تعد متوفرة. تم تحديث الكميات المتاحة، من فضلك تحققي من العربة وحاولي مجددًا."
@@ -1647,62 +1797,11 @@ document.getElementById("orderForm").addEventListener("submit", async function(e
       return;
     }
 
-    const subtotal = items.reduce((s,it)=>s+it.price*it.qty,0);
-    const total = subtotal + ship;
-
-    const order = {
-      id: "o_"+Date.now(),
-      createdAt: new Date().toISOString(),
-      status: "pending", // pending -> confirmed -> sent_to_noest (managed from the admin dashboard)
-      items,
-      name, lastname, phone,
-      wilaya: w.name, wilayaCode: w.code, commune,
-      deliv: delivLabel,
-      office: chosenOffice ? {label:chosenOffice.label, address:chosenOffice.address, phones:chosenOffice.phones} : null,
-      shipping: ship, subtotal, total, notes
-    };
-    try{
-      const {id, ...orderData} = order;
-      await db.collection("orders").doc(id).set(orderData);
-    }catch(err){ console.error("could not log order", err); }
-
-    const itemLines = items.map(it=>{
-      const details = [it.color, it.size].filter(Boolean).join(" - ");
-      return `- ${it.name}${details?(" ("+details+")"):""} × ${it.qty} — ${money(it.price*it.qty)}`;
-    });
-    const lines = L==="ar" ? [
-      `طلب جديد من موقع lilya_brannd`,
-      `المنتجات:`,
-      ...itemLines,
-      `الاسم واللقب: ${name} ${lastname}`,
-      `الهاتف: ${phone}`,
-      `الولاية: ${w.name} - البلدية: ${commune}`,
-      `طريقة التوصيل: ${delivLabel}${chosenOffice?(" — "+chosenOffice.label):""}`,
-      `سعر المنتجات: ${money(subtotal)}`,
-      `سعر التوصيل: ${money(ship)}`,
-      `المجموع الكلي: ${money(total)}`,
-      ...(notes ? [`ملاحظات: ${notes}`] : [])
-    ] : [
-      `Nouvelle commande — lilya_brannd`,
-      `Produits:`,
-      ...itemLines,
-      `Nom et prénom: ${name} ${lastname}`,
-      `Téléphone: ${phone}`,
-      `Wilaya: ${w.name} - Commune: ${commune}`,
-      `Livraison: ${delivLabel}${chosenOffice?(" — "+chosenOffice.label):""}`,
-      `Prix produits: ${money(subtotal)}`,
-      `Frais de livraison: ${money(ship)}`,
-      `Total: ${money(total)}`,
-      ...(notes ? [`Remarques: ${notes}`] : [])
-    ];
-    const msg = encodeURIComponent(lines.join("\n"));
-    const waUrl = `https://wa.me/213670246200?text=${msg}`;
-    if(waWindow){ waWindow.location.href = waUrl; waNavigated = true; }
-    else { window.open(waUrl, "_blank"); }
     document.getElementById("orderOverlay").classList.remove("open");
     CART = [];
     renderCart();
     this.reset();
+    showOrderSuccess();
     return;
   }
 
@@ -1744,11 +1843,25 @@ document.getElementById("orderForm").addEventListener("submit", async function(e
     color, size: l.size||"", qty: l.qty
   }));
 
-  // Check and reserve stock FIRST, atomically across every size line, before
-  // the order is ever created or sent — if any size ran out just now,
-  // nothing is written and the customer is told right away.
-  if(p){
-    const stockResult = await applyStockForOrderItems(items.map(it=>({id:it.id, size:it.size, qty:it.qty})));
+  const subtotal = items.reduce((s,it)=>s+it.price*it.qty,0);
+  const total = subtotal + ship;
+
+  const order = {
+    id: "o_"+Date.now(),
+    createdAt: new Date().toISOString(),
+    status: "pending", // pending -> confirmed -> sent_to_noest (managed from the admin dashboard)
+    items,
+    name, lastname, phone, nameKey: nameKeyOf(name, lastname),
+    wilaya: w.name, wilayaCode: w.code, commune,
+    deliv: delivLabel,
+    office: chosenOffice ? {label:chosenOffice.label, address:chosenOffice.address, phones:chosenOffice.phones} : null,
+    shipping: ship, subtotal, total, notes
+  };
+
+  // Reserve stock AND save the order in one atomic step.
+  {
+    const stockResult = await applyStockForOrderItems(p ? items.map(it=>({id:it.id, size:it.size, qty:it.qty})) : [], order);
+    if(!stockResult.ok && stockResult.error){ alert(orderSaveFailedMessage(L)); return; }
     if(!stockResult.ok){
       alert((L==="ar"
         ? "عذرًا، أحد المقاسات المطلوبة لم يعد متوفرًا بالكمية المطلوبة. من فضلك تحققي من المقاسات والكميات المحدّثة أدناه."
@@ -1765,72 +1878,15 @@ document.getElementById("orderForm").addEventListener("submit", async function(e
     }
   }
 
-  const subtotal = items.reduce((s,it)=>s+it.price*it.qty,0);
-  const total = subtotal + ship;
-
-  const order = {
-    id: "o_"+Date.now(),
-    createdAt: new Date().toISOString(),
-    status: "pending", // pending -> confirmed -> sent_to_noest (managed from the admin dashboard)
-    items,
-    name, lastname, phone,
-    wilaya: w.name, wilayaCode: w.code, commune,
-    deliv: delivLabel,
-    office: chosenOffice ? {label:chosenOffice.label, address:chosenOffice.address, phones:chosenOffice.phones} : null,
-    shipping: ship, subtotal, total, notes
-  };
-  try{
-    const {id: _oid, ...orderData} = order;
-    await db.collection("orders").doc(_oid).set(orderData);
-  }catch(err){ console.error("could not log order", err); }
-
-  const sizeMsgLines = items.map(it=>
-    L==="ar"
-      ? `- ${it.size?("المقاس: "+it.size+" — "):""}الكمية: ${it.qty}`
-      : `- ${it.size?("Taille: "+it.size+" — "):""}Quantité: ${it.qty}`
-  );
-  const lines = L==="ar" ? [
-    `طلب جديد من موقع lilya_brannd`,
-    `المنتج: ${p?p.name:"-"}${color?(" - اللون: "+color):""}`,
-    ...sizeMsgLines,
-    `الاسم واللقب: ${name} ${lastname}`,
-    `الهاتف: ${phone}`,
-    `الولاية: ${w.name} - البلدية: ${commune}`,
-    `طريقة التوصيل: ${delivLabel}${chosenOffice?(" — "+chosenOffice.label):""}`,
-    `سعر المنتج: ${money(subtotal)}`,
-    `سعر التوصيل: ${money(ship)}`,
-    `المجموع الكلي: ${money(total)}`,
-    ...(notes ? [`ملاحظات: ${notes}`] : [])
-  ] : [
-    `Nouvelle commande — lilya_brannd`,
-    `Produit: ${p?p.name:"-"}${color?(" - Couleur: "+color):""}`,
-    ...sizeMsgLines,
-    `Nom et prénom: ${name} ${lastname}`,
-    `Téléphone: ${phone}`,
-    `Wilaya: ${w.name} - Commune: ${commune}`,
-    `Livraison: ${delivLabel}${chosenOffice?(" — "+chosenOffice.label):""}`,
-    `Prix produit: ${money(subtotal)}`,
-    `Frais de livraison: ${money(ship)}`,
-    `Total: ${money(total)}`,
-    ...(notes ? [`Remarques: ${notes}`] : [])
-  ];
-  const msg = encodeURIComponent(lines.join("\n"));
-  const waUrl = `https://wa.me/213670246200?text=${msg}`;
-  if(waWindow){ waWindow.location.href = waUrl; waNavigated = true; }
-  else { window.open(waUrl, "_blank"); }
   document.getElementById("orderOverlay").classList.remove("open");
   OF_SIZE_ROWS = [];
   this.reset();
+  showOrderSuccess();
   }finally{
     // Whatever happened above (success, a validation stop, or a rejected
     // stock check), always leave the form usable again for a next attempt...
     submitBtn.disabled = false;
     submitBtn.innerHTML = submitBtnOriginalHTML;
-    // ...and never leave a blank empty tab open if the order didn't
-    // actually go through (validation failed, stock ran out, etc.).
-    if(waWindow && !waNavigated){
-      try{ waWindow.close(); }catch(err){}
-    }
   }
 });
 
@@ -1854,7 +1910,7 @@ document.getElementById("orderForm").addEventListener("submit", async function(e
       PRODUCTS = fresh;
       renderProducts();
     }
-  }, 60000);
+  }, 300000); // every 5 minutes: only one small document is read each time
 })();
 </script>
 </body>
