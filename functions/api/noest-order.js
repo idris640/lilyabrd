@@ -93,8 +93,16 @@ export async function onRequestPost({ request, env }) {
   if (!env.NOEST_API_TOKEN || !env.NOEST_GUID) {
     return json(500, { error: "NOEST_API_TOKEN / NOEST_GUID غير مضبوطين في إعدادات Cloudflare" });
   }
-  if (!env.ADMIN_KEY || request.headers.get("X-Admin-Key") !== env.ADMIN_KEY) {
-    return json(401, { error: "مفتاح Noest غير صحيح (الإعدادات ← مفتاح Noest)" });
+  const expected = String(env.ADMIN_KEY || "").trim();
+  const given = String(request.headers.get("X-Admin-Key") || "").trim();
+  if (!expected) {
+    return json(500, { error: "ADMIN_KEY غير موجود في Cloudflare، أو لم تتم إعادة النشر بعد إضافته" });
+  }
+  if (!given) {
+    return json(401, { error: "لم يُحفظ مفتاح Noest على هذا الجهاز وهذا الرابط (الإعدادات ← مفتاح Noest)" });
+  }
+  if (given !== expected) {
+    return json(401, { error: `مفتاح Noest لا يطابق ADMIN_KEY في Cloudflare (المكتوب ${given.length} حرفًا، والمطلوب ${expected.length} حرفًا)` });
   }
   let o;
   try { o = await request.json(); } catch { return json(400, { error: "طلب غير صالح" }); }
