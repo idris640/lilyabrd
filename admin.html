@@ -549,7 +549,7 @@ async function loadProducts(){
     try{
       const live = await liveRef().get();
       const have = live.exists ? (live.data()||{}) : {};
-      const missing = list.filter(p=>!have[p.id]);
+      const missing = list.filter(p=>!have[p.id] || have[p.id].deleted);
       if(missing.length){
         const patch = {}; missing.forEach(p=>{ patch[p.id] = liveEntry(p); });
         await liveRef().set(patch, {merge:true});
@@ -589,7 +589,7 @@ async function saveProductDoc(id, data){
 async function deleteProductDoc(id){
   try{ await mediaRef(id).delete(); }catch(e){ console.error(e); }
   await db.collection("products").doc(id).delete();
-  try{ await liveRef().update({[id]: firebase.firestore.FieldValue.delete()}); }catch(e){ console.error(e); }
+  try{ await liveRef().set({[id]: {deleted:true}}, {merge:true}); }catch(e){ console.error(e); }
 }
 /* Only the most recent orders are loaded (all of them become thousands of
    reads per click once the store is busy). Older orders stay safe in

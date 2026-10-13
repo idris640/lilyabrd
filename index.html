@@ -872,8 +872,11 @@ async function loadLive(){
 }
 function applyLive(list, live){
   if(!live || !Object.keys(live).length) return list;
-  return list.filter(p=>live[p.id]).map(p=>{
+  // A product missing from config/live keeps its catalogue values (never
+  // hidden by accident); only products marked deleted are removed.
+  return list.filter(p=>!(live[p.id] && live[p.id].deleted)).map(p=>{
     const l = live[p.id];
+    if(!l) return p;
     return Object.assign({}, p, {
       sizes: Array.isArray(l.sizes) ? l.sizes : p.sizes,
       available: l.available !== false,
