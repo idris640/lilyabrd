@@ -129,19 +129,6 @@ tr:last-child td{border-bottom:none;}
 .inv-qty{font-weight:800;}
 .inv-qty.zero{color:var(--red);}
 .inv-qty.low{color:var(--amber);}
-.inv-row-dropped{animation:invDropFlash 3.5s ease-out 1;}
-@keyframes invDropFlash{
-  0%{background:#fde3e3;}
-  100%{background:transparent;}
-}
-.inv-drop-badge{
-  display:inline-flex;align-items:center;gap:2px;
-  background:var(--red);color:#fff;font-size:10.5px;font-weight:800;
-  padding:1px 7px;border-radius:20px;margin-inline-start:6px;
-}
-.inv-live-note{display:flex;align-items:center;gap:8px;font-size:12px;color:#8a8081;}
-.inv-live-dot{width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0;animation:invLivePulse 1.6s ease-in-out infinite;}
-@keyframes invLivePulse{0%,100%{opacity:1;}50%{opacity:.35;}}
 .inv-color-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px;border-bottom:1px solid var(--line);font-size:13.5px;}
 .inv-color-row .sw{width:14px;height:14px;border-radius:50%;display:inline-block;border:1px solid rgba(0,0,0,.15);margin-inline-end:6px;}
 .inv-note{font-size:12.5px;color:#8a8081;}
@@ -191,8 +178,6 @@ tr:last-child td{border-bottom:none;}
         <div class="stat"><b id="statOrders">0</b><span>عدد الطلبات</span></div>
         <div class="stat"><b id="statPending">0</b><span>طلبات بانتظار التأكيد</span></div>
         <div class="stat"><b id="statPromo">0</b><span>منتجات في التخفيضات</span></div>
-        <div class="stat"><b id="statLowStock" style="color:var(--amber);">0</b><span>مقاسات على وشك النفاد (≤3)</span></div>
-        <div class="stat"><b id="statOutStock" style="color:var(--red);">0</b><span>مقاسات نافذة تمامًا</span></div>
       </div>
     </div>
 
@@ -211,14 +196,13 @@ tr:last-child td{border-bottom:none;}
 
     <!-- ORDERS -->
     <div class="view" id="view-orders">
-      <div class="view-head"><h2>الطلبات</h2><div style="display:flex;gap:8px;flex-wrap:wrap;"><button class="btn btn-ghost" id="toggleAllOrders">عرض كل الطلبيات (حتى القديمة)</button><button class="btn btn-ghost" id="refreshOrders">تحديث</button></div></div>
-      <div id="ordersScopeNote" style="font-size:12.5px;color:#786f70;margin:-6px 0 12px;"></div>
+      <div class="view-head"><h2>الطلبات</h2><button class="btn btn-ghost" id="refreshOrders">تحديث</button></div>
       <div class="search-box" style="margin-bottom:14px;max-width:320px;display:flex;align-items:center;gap:8px;border:1.5px solid var(--line);border-radius:7px;padding:0 10px;">
         <svg viewBox="0 0 24 24" fill="none" stroke="#8a8081" stroke-width="2" style="width:16px;height:16px;flex-shrink:0;"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
         <input type="text" id="ordersPhoneSearch" placeholder="ابحثي برقم الهاتف..." style="border:none;padding:10px 0;flex:1;outline:none;">
       </div>
       <table>
-        <thead><tr><th>التاريخ</th><th>الزبون</th><th>الهاتف</th><th>المنتج</th><th>الولاية / المكتب</th><th>التوصيل</th><th>ملاحظات</th><th>المجموع</th><th>الحالة</th><th></th></tr></thead>
+        <thead><tr><th>التاريخ</th><th>الزبون</th><th>الهاتف</th><th>المنتج</th><th>الولاية / المكتب</th><th>التوصيل</th><th>المجموع</th><th>الحالة</th><th></th></tr></thead>
         <tbody id="ordersTable"></tbody>
       </table>
       <div class="empty" id="ordersEmpty" style="display:none;">لا توجد طلبات بعد.</div>
@@ -228,12 +212,9 @@ tr:last-child td{border-bottom:none;}
     <div class="view" id="view-inventory">
       <div class="view-head">
         <h2>المخزون</h2>
-        <div style="display:flex;align-items:center;gap:14px;">
-          <span class="inv-live-note"><span class="inv-live-dot"></span>تحديث تلقائي كل 30 ثانية</span>
-          <button class="btn btn-ghost" id="refreshInventory">تحديث</button>
-        </div>
+        <button class="btn btn-ghost" id="refreshInventory">تحديث</button>
       </div>
-      <div class="note">لكل منتج: الكمية المتبقية من كل مقاس (وعدد ما بيع منه حسب الطلبات)، وقائمة الألوان مع عدد مرات طلب كل لون. أي طلبية جديدة تُنقص الكمية هنا مباشرة وتظهر باللون الأحمر الوامض للحظات لتنبيهك أنها نقصت للتو. المنتجات بدون مقاسات مُتحكم فيها يدويًا بزر "متوفر/غير متوفر" فقط.</div>
+      <div class="note">لكل منتج: الكمية المتبقية من كل مقاس (وعدد ما بيع منه حسب الطلبات)، وقائمة الألوان مع عدد مرات طلب كل لون. المنتجات بدون مقاسات مُتحكم فيها يدويًا بزر "متوفر/غير متوفر" فقط.</div>
       <div class="search-box" style="margin:14px 0;max-width:360px;">
         <input type="text" id="inventorySearch" placeholder="ابحثي عن منتج..." style="width:100%;padding:10px 12px;border:1.5px solid var(--line);border-radius:7px;">
       </div>
@@ -306,12 +287,6 @@ tr:last-child td{border-bottom:none;}
         <input type="password" id="newPass">
         <button class="btn btn-primary" id="changePassBtn">حفظ كلمة المرور</button>
         <div class="err" id="passErr" style="margin-top:10px;"></div>
-      </div>
-      <div class="settings-card" style="margin-top:16px;">
-        <h3>مفتاح Noest</h3>
-        <input type="password" id="noestKey" placeholder="ADMIN_KEY">
-        <button class="btn btn-primary" id="saveNoestKeyBtn">حفظ المفتاح</button>
-        <div class="err" id="noestKeyMsg" style="margin-top:10px;color:var(--green);"></div>
       </div>
     </div>
 
@@ -389,7 +364,7 @@ tr:last-child td{border-bottom:none;}
         الألوان المتوفرة
         <div class="add-img-row">
           <input type="color" id="p_colorinput" value="#c98a9c" style="width:48px;padding:2px;">
-          <input type="text" id="p_colorname" placeholder="اسم اللون (مثال: وردي)" style="flex:1;" onkeydown="if(event.key==='Enter'){event.preventDefault();document.getElementById('addColorBtn').click();}">
+          <input type="text" id="p_colorname" placeholder="اسم اللون (مثال: وردي)" style="flex:1;">
           <button type="button" class="btn btn-ghost" id="addColorBtn">إضافة</button>
         </div>
         <div class="chip-list" id="colorList"></div>
@@ -474,8 +449,6 @@ let currentColors = [];
 let currentSizes = [];
 let currentAvailable = true;
 let editingId = null;
-let INVENTORY_PREV = {}; // productId -> {size: qty} as of the last inventory render, used to flash drops
-let inventoryPollTimer = null;
 
 /* ---------- data layer ---------- */
 async function getPass(){
@@ -487,142 +460,68 @@ async function getPass(){
 async function setPass(v){
   await db.collection("config").doc("settings").set({admin_pass: v}, {merge:true});
 }
-/* ---------- product photos: split storage ----------
-   The storefront used to download EVERY photo of EVERY product on each
-   visit (and again every 60s), which burns Firebase's free monthly data
-   allowance fast. Now each product document only holds one small
-   thumbnail; the full photos live in products/{id}/media/main and the
-   storefront loads them only when a customer opens that product.
-   Old products are converted automatically the first time this
-   dashboard loads. */
-function mediaRef(id){ return db.collection("products").doc(id).collection("media").doc("main"); }
-function makeThumb(src){
-  return new Promise(resolve=>{
-    if(!src) return resolve("");
-    if(!/^data:/.test(src)) return resolve(src); // already a URL: small enough as-is
-    const img = new Image();
-    img.onload = ()=>{
-      try{
-        const maxW = 480, scale = Math.min(1, maxW/img.width);
-        const c = document.createElement("canvas");
-        c.width = Math.round(img.width*scale); c.height = Math.round(img.height*scale);
-        c.getContext("2d").drawImage(img,0,0,c.width,c.height);
-        resolve(c.toDataURL("image/jpeg",0.72));
-      }catch(e){ console.error(e); resolve(src.length < 80000 ? src : ""); }
-    };
-    img.onerror = ()=>resolve(src.length < 80000 ? src : "");
-    img.src = src;
-  });
-}
-/* config/live holds, for every product, only what changes often (stock per
-   size, availability, price). The storefront reads this ONE small document
-   per visit instead of every product, so stock and prices stay live while
-   the catalogue (names, photos) is served as static files. */
-const liveRef = ()=>db.collection("config").doc("live");
-function liveEntry(p, touched){
-  const e = {sizes:p.sizes||[], available:p.available!==false, price:p.price??null, oldPrice:p.oldPrice??null};
-  if(touched) e.updatedAt = Date.now(); // tells the storefront this product changed after the last publish
-  return e;
-}
 async function loadProducts(){
   try{
     const snap = await db.collection("products").get();
-    const list = snap.docs.map(d=>Object.assign({id:d.id}, d.data()));
-    for(const p of list){
-      if(p.mediaSplit){ continue; } // full photos are loaded only when editing
-      if((p.images && p.images.length) || (p.imagesSecondary && p.imagesSecondary.length)){
-        // one-time conversion of an old product to the split format
-        try{ const {id, ...data} = p; await saveProductDoc(id, data); p.mediaSplit = true; p._mediaLoaded = true; }
-        catch(e){ console.error("migration failed", p.id, e); }
-      }
-    }
-    // make sure config/live knows every product (first run, or after a gap)
-    try{
-      const live = await liveRef().get();
-      const have = live.exists ? (live.data()||{}) : {};
-      const missing = list.filter(p=>!have[p.id] || have[p.id].deleted);
-      if(missing.length){
-        const patch = {}; missing.forEach(p=>{ patch[p.id] = liveEntry(p); });
-        await liveRef().set(patch, {merge:true});
-      }
-    }catch(e){ console.error("live sync failed", e); }
-    return list;
+    return snap.docs.map(d=>Object.assign({id:d.id}, d.data()));
   }catch(e){ console.error(e); return []; }
 }
-async function ensureMedia(p){
-  if(!p || !p.mediaSplit || p._mediaLoaded) return;
-  const m = await mediaRef(p.id).get();
-  const md = m.exists ? m.data() : {};
-  p.images = md.images || [];
-  p.imagesSecondary = md.imagesSecondary || [];
-  p._mediaLoaded = true;
-}
-/* Rebuilds the public catalogue (Cloudflare Pages deploy hook saved in
-   Settings). Called after every product change; harmless if not set up. */
-async function triggerPublish(silent){
-  try{
-    const s = await db.collection("config").doc("settings").get();
-    const hook = s.exists ? (s.data()||{}).deployHook : "";
-    if(!hook) return false; // optional: config/settings.deployHook in Firebase
-    await fetch(hook, {method:"POST", mode:"no-cors"});
-    if(!silent) alert("تم طلب النشر. ستظهر التحديثات في المتجر خلال دقيقة أو دقيقتين.");
-    return true;
-  }catch(e){ console.error("publish failed", e); if(!silent) alert("تعذّر طلب النشر: "+(e.message||e)); return false; }
-}
-async function saveProductDoc(id, data){
-  const {images = [], imagesSecondary = [], thumb, mediaSplit, ...rest} = data;
-  const newThumb = await makeThumb(images[0] || imagesSecondary[0] || "");
-  // photos first: if anything fails after this, the old product doc is untouched
-  await mediaRef(id).set({images, imagesSecondary});
-  await db.collection("products").doc(id).set(Object.assign({}, rest, {thumb:newThumb, mediaSplit:true}));
-  try{ await liveRef().set({[id]: liveEntry(rest, true)}, {merge:true}); }catch(e){ console.error("live update failed", e); }
-}
-async function deleteProductDoc(id){
-  try{ await mediaRef(id).delete(); }catch(e){ console.error(e); }
-  await db.collection("products").doc(id).delete();
-  try{ await liveRef().set({[id]: {deleted:true}}, {merge:true}); }catch(e){ console.error(e); }
-}
-/* Only the most recent orders are loaded (all of them become thousands of
-   reads per click once the store is busy). Older orders stay safe in
-   Firebase (Firestore → Données → orders). */
-const ORDERS_LIMIT = 1000;
-let ORDERS_LOADED_AT = 0;
-// "Show all orders" choice is remembered on this device.
-let ORDERS_ALL = false;
-try{ ORDERS_ALL = localStorage.getItem("ordersAll") === "1"; }catch(e){}
+async function saveProductDoc(id, data){ await db.collection("products").doc(id).set(data); }
+async function deleteProductDoc(id){ await db.collection("products").doc(id).delete(); }
 async function loadOrders(){
   try{
-    let snap;
-    if(ORDERS_ALL){ snap = await db.collection("orders").get(); }
-    else try{ snap = await db.collection("orders").orderBy("createdAt","desc").limit(ORDERS_LIMIT).get(); }
-    catch(e){ console.error("ordered load failed, loading all", e); snap = await db.collection("orders").get(); }
-    ORDERS_LOADED_AT = Date.now();
-    // Orders "deleted" from the dashboard are only hidden (status "deleted"),
-    // never erased, so they can always be recovered from Firebase.
-    return snap.docs.map(d=>Object.assign({id:d.id}, d.data())).filter(o=>o.status!=="deleted");
+    const snap = await db.collection("orders").get();
+    return snap.docs.map(d=>Object.assign({id:d.id}, d.data()));
   }catch(e){ console.error(e); return []; }
 }
 async function updateOrderDoc(id, patch){ await db.collection("orders").doc(id).update(patch); }
 
-/* ---------- login ---------- */
+/* ---------- login (session kept until explicit logout) ---------- */
+/* After a successful login we remember a SHA-256 fingerprint of the password
+   in this browser (never the password itself). On the next visit, if the
+   fingerprint still matches the current password, the dashboard opens
+   directly. Pressing "تسجيل الخروج" deletes it, so the password is asked
+   again. Changing the password also invalidates every remembered session. */
+const SESSION_KEY = "lilya_admin_session";
+async function passFingerprint(pass){
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("lilya|" + pass));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+function rememberSession(fp){ try{ localStorage.setItem(SESSION_KEY, fp); }catch(e){} }
+function forgetSession(){ try{ localStorage.removeItem(SESSION_KEY); }catch(e){} }
+function readSession(){ try{ return localStorage.getItem(SESSION_KEY); }catch(e){ return null; } }
+function openDashboard(){
+  document.getElementById("loginWrap").style.display="none";
+  document.getElementById("app").classList.add("show");
+  boot();
+}
 document.getElementById("loginBtn").onclick = async ()=>{
   const val = document.getElementById("loginPass").value;
   const real = await getPass();
   if(val === real){
-    document.getElementById("loginWrap").style.display="none";
-    document.getElementById("app").classList.add("show");
-    boot();
+    try{ rememberSession(await passFingerprint(real)); }catch(e){ console.error(e); }
+    openDashboard();
   }else{
     document.getElementById("loginErr").textContent = "كلمة المرور غير صحيحة";
   }
 };
 document.getElementById("loginPass").addEventListener("keydown", e=>{ if(e.key==="Enter") document.getElementById("loginBtn").click(); });
 document.getElementById("logoutBtn").onclick = ()=>{
-  stopInventoryPolling();
+  forgetSession();
   document.getElementById("app").classList.remove("show");
   document.getElementById("loginWrap").style.display="flex";
   document.getElementById("loginPass").value = "";
+  document.getElementById("loginErr").textContent = "";
 };
+(async function autoLogin(){
+  const saved = readSession();
+  if(!saved) return;
+  try{
+    const real = await getPass();
+    if(saved === await passFingerprint(real)) openDashboard();
+    else forgetSession();
+  }catch(e){ console.error(e); }
+})();
 
 /* ---------- nav ---------- */
 document.querySelectorAll("aside nav a").forEach(a=>{
@@ -632,8 +531,8 @@ document.querySelectorAll("aside nav a").forEach(a=>{
     document.querySelectorAll(".view").forEach(v=>v.classList.remove("active"));
     document.getElementById("view-"+a.getAttribute("data-view")).classList.add("active");
     const v = a.getAttribute("data-view");
-    if(v==="orders") renderOrders(true);
-    if(v==="inventory") renderInventory(); else stopInventoryPolling();
+    if(v==="orders") renderOrders();
+    if(v==="inventory") renderInventory();
     if(v==="dash") renderDash();
     if(v==="stats") renderStats();
     if(v==="pricing") renderPricingTable();
@@ -650,7 +549,7 @@ function renderProductsTable(){
     <tr>
       <td>
         <div style="display:flex;gap:4px;flex-wrap:wrap;max-width:170px;">
-          ${(()=>{ const all=p._mediaLoaded||!p.mediaSplit ? [...(p.images||[]),...(p.imagesSecondary||[])] : [p.thumb].filter(Boolean); return all.length ? all.map(img=>`<img class="thumb64" style="width:36px;height:46px;" src="${img}">`).join("") : `<div class="thumb64"></div>`; })()}
+          ${(()=>{ const all=[...(p.images||[]),...(p.imagesSecondary||[])]; return all.length ? all.map(img=>`<img class="thumb64" style="width:36px;height:46px;" src="${img}">`).join("") : `<div class="thumb64"></div>`; })()}
         </div>
       </td>
       <td>${p.name}</td>
@@ -701,32 +600,13 @@ async function renderInventory(filter){
   const listBox = document.getElementById("inventoryList");
   const empty = document.getElementById("inventoryEmpty");
   const q = (filter!==undefined ? filter : (document.getElementById("inventorySearch").value||"")).trim().toLowerCase();
-  // Always pull the latest products + orders straight from Firestore so a
-  // brand-new order placed seconds ago is reflected immediately, whether the
-  // admin just opened this tab or the auto-refresh timer fired.
-  // Products: full load once, then only the small live doc (stock).
-  // Orders: re-downloaded at most every 5 minutes.
-  if(!PRODUCTS.length){ PRODUCTS = await loadProducts(); }
-  else{
-    try{
-      const live = await liveRef().get();
-      const map = live.exists ? (live.data()||{}) : {};
-      PRODUCTS.forEach(p=>{ const l = map[p.id]; if(l){ p.sizes = l.sizes||p.sizes; p.available = l.available; } });
-    }catch(e){ console.error(e); }
-  }
-  if(Date.now() - ORDERS_LOADED_AT > 5*60*1000){ ORDERS = await loadOrders(); }
-  const orders = ORDERS;
+  const orders = await loadOrders();
   const stats = buildInventoryStats(orders);
   const list = PRODUCTS.filter(p=>!q || (p.name||"").toLowerCase().includes(q));
   empty.style.display = list.length ? "none" : "block";
-
-  const nextPrev = {}; // rebuilt this render, becomes INVENTORY_PREV for next time
-
   listBox.innerHTML = list.map(p=>{
     const st = stats[p.id] || {bySize:{}, byColor:{}};
     const img = (p.images && p.images[0]) ? p.images[0] : "";
-    const prevForProduct = INVENTORY_PREV[p.id] || {};
-    nextPrev[p.id] = {};
 
     let sizesHTML;
     if(p.sizes && p.sizes.length){
@@ -735,14 +615,9 @@ async function renderInventory(filter){
         <tbody>
           ${p.sizes.map(s=>{
             const qty = s.qty||0;
-            nextPrev[p.id][s.size] = qty;
             const qtyClass = qty<=0 ? "zero" : (qty<=3 ? "low" : "");
             const sold = st.bySize[s.size] || 0;
-            const prevQty = prevForProduct[s.size];
-            const justDropped = (typeof prevQty === "number") && qty < prevQty;
-            const dropBadge = justDropped ? `<span class="inv-drop-badge">▼ ${prevQty - qty}</span>` : "";
-            const rowClass = justDropped ? "inv-row-dropped" : "";
-            return `<tr class="${rowClass}"><td>${s.size}</td><td class="inv-qty ${qtyClass}">${qty}${dropBadge}</td><td>${sold}</td></tr>`;
+            return `<tr><td>${s.size}</td><td class="inv-qty ${qtyClass}">${qty}</td><td>${sold}</td></tr>`;
           }).join("")}
         </tbody>
       </table>`;
@@ -772,36 +647,12 @@ async function renderInventory(filter){
       </div>
     </div>`;
   }).join("");
-
-  INVENTORY_PREV = nextPrev;
-  renderDash(); // low/out-of-stock counters on the dashboard stay in sync too
-  startInventoryPolling();
-}
-/* Keeps the inventory page live while it's open: every 30s it silently
-   re-pulls products/orders and re-renders, so a new order placed by a
-   customer shows up here — with the red "just dropped" flash — without
-   the admin needing to click "تحديث". Stops as soon as she leaves the tab,
-   switches to another browser tab, or logs out, so it doesn't keep reading
-   Firestore in the background. Kept to a longer interval (and paused while
-   the tab isn't visible) on purpose: this reads the whole products AND
-   orders collections every time it fires, and doing that too often is what
-   can exhaust a free Firestore plan's daily quota and make the WHOLE site
-   — including customer checkout — start failing with "resource-exhausted"
-   errors, which looks exactly like a stock bug but isn't one. */
-function startInventoryPolling(){
-  stopInventoryPolling();
-  inventoryPollTimer = setInterval(()=>{
-    const view = document.getElementById("view-inventory");
-    if(!view || !view.classList.contains("active")){ stopInventoryPolling(); return; }
-    if(document.hidden) return;
-    renderInventory();
-  }, 30000);
-}
-function stopInventoryPolling(){
-  if(inventoryPollTimer){ clearInterval(inventoryPollTimer); inventoryPollTimer = null; }
 }
 document.getElementById("inventorySearch").addEventListener("input", ()=>renderInventory());
-document.getElementById("refreshInventory").onclick = ()=>renderInventory();
+document.getElementById("refreshInventory").onclick = async ()=>{
+  PRODUCTS = await loadProducts();
+  renderInventory();
+};
 
 function openModal(){ document.getElementById("productModalOverlay").classList.add("open"); }
 function closeModal(){ document.getElementById("productModalOverlay").classList.remove("open"); }
@@ -829,11 +680,9 @@ document.getElementById("addProductBtn").onclick = ()=>{
   setAvailable(true);
   openModal();
 };
-async function editProduct(id){
+function editProduct(id){
   const p = PRODUCTS.find(x=>x.id===id);
   if(!p) return;
-  try{ await ensureMedia(p); }
-  catch(e){ console.error(e); alert("تعذّر تحميل صور المنتج، تحققي من الاتصال وحاولي من جديد."); return; }
   editingId = id;
   document.getElementById("modalTitle").textContent = "تعديل المنتج";
   document.getElementById("p_id").value = p.id;
@@ -856,7 +705,6 @@ async function deleteProduct(id){
   try{
     await deleteProductDoc(id);
     PRODUCTS = PRODUCTS.filter(p=>p.id!==id);
-    triggerPublish(true);
     renderProductsTable(); renderDash();
   }catch(e){
     console.error(e);
@@ -1039,14 +887,6 @@ document.getElementById("saveProductBtn").onclick = async ()=>{
   const name = document.getElementById("p_name").value.trim();
   const price = parseFloat(document.getElementById("p_price").value);
   if(!name || isNaN(price)){ alert("الرجاء إدخال اسم المنتج والسعر"); return; }
-  // Safety net: if the admin typed a color name (or picked a swatch) but
-  // forgot to press "إضافة" before saving, add it now instead of silently
-  // losing it — this is exactly what made the inventory page show "بدون
-  // ألوان معرّفة" even though a color had clearly been filled in.
-  const pendingColorName = document.getElementById("p_colorname").value.trim();
-  if(pendingColorName){
-    document.getElementById("addColorBtn").click();
-  }
   const oldPrice = document.getElementById("p_oldprice").value ? parseFloat(document.getElementById("p_oldprice").value) : null;
   const category = document.getElementById("p_category").value;
   const description = document.getElementById("p_desc").value.trim();
@@ -1067,11 +907,10 @@ document.getElementById("saveProductBtn").onclick = async ()=>{
     await saveProductDoc(id, productData);
     if(editingId){
       const p = PRODUCTS.find(x=>x.id===editingId);
-      if(p) Object.assign(p, productData, {_mediaLoaded:true, mediaSplit:true});
+      if(p) Object.assign(p, productData);
     }else{
-      PRODUCTS.push(Object.assign({id}, productData, {_mediaLoaded:true, mediaSplit:true}));
+      PRODUCTS.push(Object.assign({id}, productData));
     }
-    triggerPublish(true);
     renderProductsTable(); renderDash(); closeModal();
   }catch(err){
     console.error("save product failed:", err);
@@ -1083,6 +922,11 @@ document.getElementById("saveProductBtn").onclick = async ()=>{
 };
 
 /* ---------- orders ---------- */
+/* Everything a customer types (name, phone, commune...) is escaped before being
+   put in the page, so special characters can't break the table or inject code. */
+function esc(v){
+  return String(v==null?"":v).replace(/[&<>"']/g, ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
+}
 function statusLabel(s){
   if(s==="confirmed") return `<span class="pill confirmed">مؤكدة</span>`;
   if(s==="sent_to_noest") return `<span class="pill sent">أُرسلت إلى Noest</span>`;
@@ -1101,13 +945,12 @@ function orderCopyText(o){
   const lines = [
     `طلب lilya_brannd`,
     Array.isArray(o.items) && o.items.length ? `المنتجات: ${orderProductLabel(o)}` : `المنتج: ${orderProductLabel(o)}`,
-    `الاسم واللقب: ${o.name} ${o.lastname}`,
+    `الاسم واللقب: ${[o.name,o.lastname].filter(Boolean).join(" ")}`,
     `الهاتف: ${o.phone}`,
     `الولاية: ${o.wilaya} - البلدية: ${o.commune}`,
-    `طريقة التوصيل: ${o.deliv}${o.office?(" — "+o.office.label+" — "+o.office.address):""}`,
+    `طريقة التوصيل: ${o.deliv}${o.office?(" — "+[o.office.label,o.office.address].filter(Boolean).join(" — ")):""}`,
     `المجموع: ${o.total} دج`
   ];
-  if(o.notes) lines.push(`ملاحظات: ${o.notes}`);
   return lines.join("\n");
 }
 async function confirmAndSend(id){
@@ -1138,11 +981,9 @@ async function confirmAndSend(id){
       }
     }catch(e){ console.error("could not load Noest station codes", e); }
     const payload = Object.assign({}, o, { stationCode });
-    let adminKey = "";
-    try{ adminKey = localStorage.getItem("noestAdminKey") || ""; }catch(e){}
-    const res = await fetch("/api/noest-order", {
+    const res = await fetch("/.netlify/functions/create-noest-order", {
       method:"POST",
-      headers:{"Content-Type":"application/json", "X-Admin-Key": adminKey},
+      headers:{"Content-Type":"application/json"},
       body: JSON.stringify(payload)
     });
     const data = await res.json().catch(()=>({}));
@@ -1150,9 +991,7 @@ async function confirmAndSend(id){
       await updateOrderDoc(id, {status:"sent_to_noest", noestResponse: data});
       o.status = "sent_to_noest";
       renderOrders();
-      alert("تم تأكيد الطلبية وإرسالها إلى Noest Express بنجاح."
-        + (data.tracking ? ("\nرقم التتبع: " + data.tracking) : "")
-        + (data.validated ? "" : "\n(الطلبية في Noest كمسودة: صادقي عليها من لوحة Noest حتى يتم استلامها)"));
+      alert("تم تأكيد الطلبية وإرسالها إلى Noest Express بنجاح.");
     }else{
       throw new Error(data.error || ("HTTP "+res.status));
     }
@@ -1161,7 +1000,7 @@ async function confirmAndSend(id){
     await updateOrderDoc(id, {status:"confirmed"});
     o.status = "confirmed";
     renderOrders();
-    alert("تم تأكيد الطلبية، لكن الإرسال التلقائي إلى Noest فشل (تحققي من إعدادات Noest في Cloudflare ومن \"مفتاح Noest\" في الإعدادات). استخدمي زر \"نسخ بيانات الطلبية\" لإدخالها يدويًا في لوحة Noest.\n\nتفاصيل الخطأ: " + err.message);
+    alert("تم تأكيد الطلبية، لكن الإرسال التلقائي إلى Noest فشل.\n\nسبب الخطأ: " + err.message + "\n\nيمكنك إعادة المحاولة بزر \"تأكيد وإرسال لـ Noest\" بعد تصحيح السبب، أو استخدمي زر \"نسخ البيانات\" لإدخال الطلبية يدويًا في لوحة Noest.");
   }
 }
 async function markConfirmedOnly(id){
@@ -1171,11 +1010,9 @@ async function markConfirmedOnly(id){
   renderOrders();
 }
 async function deleteOrder(id){
-  if(!confirm("هل تريدين حذف هذه الطلبية؟ (ستختفي من القائمة، لكنها تبقى محفوظة في Firebase ويمكن استرجاعها)")) return;
+  if(!confirm("هل تريدين حذف هذه الطلبية نهائيًا؟ لا يمكن التراجع.")) return;
   try{
-    // Soft delete: hide the order instead of erasing it, so a mistaken
-    // click never loses an order for good.
-    await updateOrderDoc(id, {status:"deleted", deletedAt:new Date().toISOString()});
+    await db.collection("orders").doc(id).delete();
     ORDERS = ORDERS.filter(o=>o.id!==id);
     renderOrders();
   }catch(e){
@@ -1191,13 +1028,11 @@ function copyOrder(id){
     prompt("انسخي هذا النص يدويًا:", text);
   });
 }
-function renderOrders(reload){
-  const show = list=>{
+function renderOrders(){
+  loadOrders().then(list=>{
     ORDERS = list.slice().sort((a,b)=> (b.createdAt||"").localeCompare(a.createdAt||""));
     renderOrdersTable();
-  };
-  if(reload===true || !ORDERS_LOADED_AT) loadOrders().then(show);
-  else show(ORDERS); // after a click: no new download, just redraw
+  });
 }
 function renderOrdersTable(){
   const q = (document.getElementById("ordersPhoneSearch").value||"").trim().replace(/\s+/g,"");
@@ -1210,12 +1045,11 @@ function renderOrdersTable(){
   tbody.innerHTML = list.map(o=>`
       <tr>
         <td>${o.createdAt?new Date(o.createdAt).toLocaleString('fr-FR'):"—"}</td>
-        <td>${o.name} ${o.lastname}</td>
-        <td>${o.phone}</td>
-        <td>${(Array.isArray(o.items) && o.items.length) ? orderProductLabel(o) : (o.product?`${o.product.name} ${o.color?("/ "+o.color):""} ${o.size?("/ "+o.size):""} × ${o.qty}`:"—")}</td>
-        <td>${o.wilaya} - ${o.commune}${o.office?`<div class="office-cell">${o.office.label}</div>`:""}</td>
-        <td>${o.deliv}</td>
-        <td>${o.notes ? `<span style="font-size:12.5px;color:#786f70;" title="${o.notes.replace(/"/g,'&quot;')}">${o.notes.length>40 ? o.notes.slice(0,40)+"…" : o.notes}</span>` : "—"}</td>
+        <td>${esc([o.name,o.lastname].filter(Boolean).join(" ")||"—")}</td>
+        <td>${esc(o.phone||"—")}</td>
+        <td>${(Array.isArray(o.items) && o.items.length) ? esc(orderProductLabel(o)) : (o.product?esc(`${o.product.name} ${o.color?("/ "+o.color):""} ${o.size?("/ "+o.size):""} × ${o.qty||1}`):"—")}</td>
+        <td>${esc([o.wilaya,o.commune].filter(Boolean).join(" - ")||"—")}${(o.office&&o.office.label)?`<div class="office-cell">${esc(o.office.label)}</div>`:""}</td>
+        <td>${esc(o.deliv||"—")}</td>
         <td>${Number(o.total||0).toLocaleString('fr-FR')} DA</td>
         <td>${statusLabel(o.status||"pending")}</td>
         <td>
@@ -1229,20 +1063,7 @@ function renderOrdersTable(){
       </tr>`).join("");
   renderDash();
 }
-document.getElementById("refreshOrders").onclick = ()=>renderOrders(true);
-function updateOrdersScopeUI(){
-  document.getElementById("toggleAllOrders").textContent = ORDERS_ALL ? "عرض آخر 1000 طلبية فقط (أسرع)" : "عرض كل الطلبيات (حتى القديمة)";
-  document.getElementById("ordersScopeNote").textContent = ORDERS_ALL
-    ? "يتم عرض كل الطلبيات منذ فتح المتجر."
-    : "يتم عرض آخر 1000 طلبية. الطلبيات الأقدم محفوظة، اضغطي \"عرض كل الطلبيات\" لرؤيتها.";
-}
-document.getElementById("toggleAllOrders").onclick = ()=>{
-  ORDERS_ALL = !ORDERS_ALL;
-  try{ localStorage.setItem("ordersAll", ORDERS_ALL ? "1" : "0"); }catch(e){}
-  updateOrdersScopeUI();
-  renderOrders(true);
-};
-updateOrdersScopeUI();
+document.getElementById("refreshOrders").onclick = renderOrders;
 document.getElementById("ordersPhoneSearch").addEventListener("input", renderOrdersTable);
 
 /* ---------- dashboard ---------- */
@@ -1251,36 +1072,15 @@ function renderDash(){
   document.getElementById("statOrders").textContent = ORDERS.length;
   document.getElementById("statPending").textContent = ORDERS.filter(o=>!o.status||o.status==="pending").length;
   document.getElementById("statPromo").textContent = PRODUCTS.filter(p=>p.oldPrice).length;
-  // Count individual sizes (across all products) that are low (1-3 left) or
-  // fully out of stock, so the owner can spot a restock need at a glance
-  // without having to open the Inventory page.
-  let low = 0, out = 0;
-  PRODUCTS.forEach(p=>{
-    if(!p.sizes || !p.sizes.length) return;
-    p.sizes.forEach(s=>{
-      const qty = s.qty||0;
-      if(qty<=0) out++;
-      else if(qty<=3) low++;
-    });
-  });
-  document.getElementById("statLowStock").textContent = low;
-  document.getElementById("statOutStock").textContent = out;
 }
 
 /* ---------- stats (day / week / month) ---------- */
 function startOfDay(d){ const x=new Date(d); x.setHours(0,0,0,0); return x; }
 function startOfWeek(d){ const x=startOfDay(d); const day=(x.getDay()+6)%7; x.setDate(x.getDate()-day); return x; } // week starts Monday
 function startOfMonth(d){ const x=startOfDay(d); x.setDate(1); return x; }
-function loadOrdersForStats(){
-  const now = new Date();
-  const m = startOfMonth(now), d31 = startOfDay(new Date(now.getTime()-31*864e5));
-  const since = (m < d31 ? m : d31).toISOString();
-  return db.collection("orders").where("createdAt",">=",since).get()
-    .then(snap=>snap.docs.map(d=>Object.assign({id:d.id}, d.data())).filter(o=>o.status!=="deleted"))
-    .catch(e=>{ console.error(e); return ORDERS; });
-}
 function renderStats(){
-  loadOrdersForStats().then(list=>{
+  loadOrders().then(list=>{
+    ORDERS = list;
     const now = new Date();
     const dayStart = startOfDay(now), weekStart = startOfWeek(now), monthStart = startOfMonth(now);
     let cToday=0,cWeek=0,cMonth=0, rToday=0,rWeek=0,rMonth=0;
@@ -1570,20 +1370,13 @@ document.getElementById("changePassBtn").onclick = async ()=>{
   if(cur !== real){ errBox.style.color="var(--red)"; errBox.textContent = "كلمة المرور الحالية غير صحيحة"; return; }
   if(!nw || nw.length < 4){ errBox.style.color="var(--red)"; errBox.textContent = "كلمة المرور الجديدة قصيرة جدا"; return; }
   await setPass(nw);
+  try{ rememberSession(await passFingerprint(nw)); }catch(e){ console.error(e); } // keep THIS browser logged in
   errBox.style.color = "var(--green)";
   errBox.textContent = "تم تغيير كلمة المرور بنجاح";
   document.getElementById("curPass").value = "";
   document.getElementById("newPass").value = "";
 };
 
-/* ---------- Noest key (this device only) ---------- */
-try{ document.getElementById("noestKey").value = localStorage.getItem("noestAdminKey") || ""; }catch(e){}
-document.getElementById("saveNoestKeyBtn").onclick = ()=>{
-  try{
-    localStorage.setItem("noestAdminKey", document.getElementById("noestKey").value.trim());
-    document.getElementById("noestKeyMsg").textContent = "تم حفظ المفتاح على هذا الجهاز.";
-  }catch(e){ alert("تعذّر الحفظ على هذا المتصفح."); }
-};
 /* ---------- boot ---------- */
 async function boot(){
   PRODUCTS = await loadProducts();
