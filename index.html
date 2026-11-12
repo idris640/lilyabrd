@@ -211,11 +211,6 @@
   .swatch-row .sw{width:16px;height:16px;border-radius:50%;border:1px solid rgba(0,0,0,.15);display:inline-block;}
   .stock-badge{margin-inline-start:6px;font-size:11px;font-weight:800;padding:3px 9px;border-radius:20px;}
   .stock-badge.no{background:#fbebeb;color:#c65b5b;}
-  .thumb-unavail-overlay{
-    position:absolute;inset:0;background:rgba(59,53,54,.45);
-    color:#fff;font-weight:800;font-size:14px;
-    display:flex;align-items:center;justify-content:center;text-align:center;
-  }
   .buy-now:disabled, .add-cart:disabled{opacity:.5;cursor:not-allowed;}
   .buy-now:disabled:hover{background:var(--ink);}
 
@@ -506,19 +501,12 @@
       <div id="of_color_select" style="display:none;flex-wrap:wrap;gap:8px;margin-bottom:4px;"></div>
       <input type="text" id="of_color" placeholder="">
       <label id="of_sizeLabel" data-t="f_size">المقاس</label>
+      <select id="of_size_select" style="display:none;"></select>
       <input type="text" id="of_size" placeholder="">
-      <div id="of_sizeRows" style="display:none;flex-direction:column;gap:8px;margin-bottom:4px;"></div>
-      <button type="button" id="of_addSizeRow" class="btn btn-outline" style="display:none;padding:9px 14px;font-size:13px;align-self:flex-start;">+ <span data-t="f_add_size">إضافة مقاس آخر</span></button>
-      <div id="of_sizeRowsHint" style="display:none;font-size:12px;color:#8a8081;margin-top:-2px;" data-t="f_size_rows_hint">تحتاجين أكثر من مقاس؟ اختاري الكمية المطلوبة من كل مقاس.</div>
       <label id="of_qtyLabel" data-t="f_qty">الكمية</label>
       <input type="number" id="of_qty" min="1" value="1">
-      <label for="of_notes" style="display:flex;align-items:center;gap:6px;">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;flex-shrink:0;"><path d="M14 3v4a1 1 0 001 1h4"/><path d="M17 21H7a2 2 0 01-2-2V5a2 2 0 012-2h7l5 5v11a2 2 0 01-2 2z"/><path d="M9 13h6M9 17h4"/></svg>
-        <span data-t="f_notes">ملاحظات (اختياري)</span>
-      </label>
-      <textarea id="of_notes" rows="3" data-t-ph="f_notes_ph" placeholder="أي تفاصيل إضافية تريدين إخبارنا بها..." style="resize:vertical;min-height:60px;"></textarea>
       <div class="price-breakdown" id="priceBreakdown"></div>
-      <button type="submit" class="btn btn-primary" style="justify-content:center;margin-top:6px;"><span data-t="f_submit">تأكيد الطلب</span></button>
+      <button type="submit" class="btn btn-primary" style="justify-content:center;margin-top:6px;"><span data-t="f_submit">إرسال الطلب عبر واتساب</span></button>
     </form>
   </div>
 </div>
@@ -621,12 +609,8 @@ const dict = {
   commune_choose:{ar:"-- اختاري الولاية أولا --",fr:"-- Choisissez la wilaya d'abord --"},
   f_color:{ar:"اللون",fr:"Couleur"},
   f_size:{ar:"المقاس",fr:"Taille"},
-  f_add_size:{ar:"إضافة مقاس آخر",fr:"Ajouter une autre taille"},
-  f_size_rows_hint:{ar:"تحتاجين أكثر من مقاس؟ اختاري الكمية المطلوبة من كل مقاس.",fr:"Besoin de plusieurs tailles ? Choisissez la quantité pour chacune."},
   f_qty:{ar:"الكمية",fr:"Quantité"},
-  f_notes:{ar:"ملاحظات (اختياري)",fr:"Remarques (optionnel)"},
-  f_notes_ph:{ar:"أي تفاصيل إضافية تريدين إخبارنا بها...",fr:"Toute précision que vous voulez nous indiquer..."},
-  f_submit:{ar:"تأكيد الطلب",fr:"Confirmer la commande"},
+  f_submit:{ar:"إرسال الطلب عبر واتساب",fr:"Envoyer via WhatsApp"},
   buy_now:{ar:"اشتري الآن",fr:"Acheter"},
   no_products:{ar:"لا توجد منتجات في هذا القسم حاليا",fr:"Aucun produit dans cette catégorie pour le moment"},
   opt_color:{ar:"اللون",fr:"Couleur"},
@@ -857,65 +841,7 @@ WILAYAS.forEach(w=>{
    (not one big document for the whole list), so a single product's
    photos never push the whole store past Firestore's 1MB per-document
    limit. Orders are added as individual documents in "orders". */
-/* The catalogue (names, descriptions, photos) is served as static files
-   built by build.mjs and published on Cloudflare Pages, which has no
-   traffic limit. Only ONE small Firestore document (config/live: stock,
-   availability, prices) is read per visit, so thousands of visitors a day
-   stay far inside Firebase's free quota. If the static catalogue is
-   missing (e.g. not deployed with the build step), it falls back to
-   reading the products from Firestore like before. */
-async function loadLive(){
-  try{
-    const d = await db.collection("config").doc("live").get();
-    return d.exists ? (d.data()||{}) : null;
-  }catch(e){ console.error("live read failed", e); return null; }
-}
-function applyLive(list, live){
-  if(!live || !Object.keys(live).length) return list;
-  // A product missing from config/live keeps its catalogue values (never
-  // hidden by accident); only products marked deleted are removed.
-  return list.filter(p=>!(live[p.id] && live[p.id].deleted)).map(p=>{
-    const l = live[p.id];
-    if(!l) return p;
-    return Object.assign({}, p, {
-      sizes: Array.isArray(l.sizes) ? l.sizes : p.sizes,
-      available: l.available !== false,
-      price: l.price ?? p.price,
-      oldPrice: l.oldPrice ?? null
-    });
-  });
-}
 async function loadProducts(){
-  let catalog = null;
-  try{
-    const r = await fetch("/catalog.json", {cache:"no-cache"});
-    if(r.ok){ const j = await r.json(); if(Array.isArray(j)) catalog = j; }
-  }catch(e){ /* no static catalogue: use Firestore */ }
-  if(catalog){
-    catalog.forEach(p=>{ p.fromCatalog = true; p.mediaSplit = true; });
-    const live = await loadLive();
-    // Products added or edited in the dashboard after the last publish are
-    // read straight from Firebase (just those few), so the shop is never
-    // out of date even before the next automatic publish.
-    if(live){
-      const byId = {}; catalog.forEach(p=>{ byId[p.id] = p; });
-      const stale = Object.keys(live).filter(id=>{
-        const l = live[id]; if(!l || l.deleted) return false;
-        const c = byId[id];
-        return !c || (l.updatedAt && l.updatedAt > (c.builtAt||0));
-      }).slice(0, 30);
-      await Promise.all(stale.map(async id=>{
-        try{
-          const d = await db.collection("products").doc(id).get();
-          if(!d.exists) return;
-          const fresh = Object.assign({id}, d.data());
-          if(byId[id]) Object.assign(byId[id], fresh, {fromCatalog:false});
-          else catalog.push(Object.assign(fresh, {fromCatalog:false}));
-        }catch(e){ console.error("fresh product read failed", id, e); }
-      }));
-    }
-    return applyLive(catalog, live);
-  }
   try{
     const snap = await db.collection("products").get();
     return snap.docs.map(d=>Object.assign({id:d.id}, d.data()));
@@ -926,138 +852,68 @@ async function loadProducts(){
 }
 
 /* ============ stock (inventory) ============ */
-/* When a customer completes an order, the ordered quantity is checked
-   against, then subtracted from, that product's matching size — all inside
-   ONE Firestore transaction covering every line of the order. Because it's
-   a single atomic transaction:
-     - two customers ordering the same size at the same time can't oversell it
-     - if stock ran out for ANY item (checked live, right at submit time),
-       NOTHING is written and the whole order is rejected before it's ever
-       created or sent — the customer sees a clear message instead.
-   Products sold without sizes have no per-size stock to track, so they're
-   skipped — the store owner controls those manually with the "Disponible"
-   toggle. */
-/* Turns a failed stock-check result into a precise, readable line the
-   customer (and store owner, since it ends up in the alert) can act on
-   immediately — which product/size, how many were requested, and how many
-   are truly left right now — instead of a vague "check the sizes". */
-function stockFailureDetail(stockResult, items, L){
-  if(!stockResult) return "";
-  // A real technical error (e.g. a database permission problem) is a
-  // completely different situation from a genuine size shortage — say so
-  // plainly and show the raw error, instead of implying a size ran out.
-  if(stockResult.error){
-    const raw = stockResult.errorMessage || "";
-    return L==="ar"
-      ? `\n\n(هذا ليس نقصًا حقيقيًا في المخزون — حدث خطأ تقني منع التحقق من الكمية${raw?(": "+raw):""}. أرسلي هذا النص بالكامل للدعم التقني.)`
-      : `\n\n(Ceci n'est pas une vraie rupture de stock — une erreur technique a empêché la vérification${raw?(" : "+raw):""}. Merci d'envoyer ce texte complet au support technique.)`;
-  }
-  if(!Array.isArray(stockResult.failed) || !stockResult.failed.length) return "";
-  const lines = stockResult.failed.map(f=>{
-    const it = items.find(x=>x.id===f.id && (f.size===undefined || x.size===f.size));
-    const name = it ? it.name : "";
-    if(f.size===undefined){
-      return L==="ar" ? `- ${name||"المنتج"}: غير موجود` : `- ${name||"Produit"} : introuvable`;
-    }
-    return L==="ar"
-      ? `- ${name?name+" — ":""}المقاس ${f.size}: طلبتِ ${f.needed}، المتوفر حاليًا ${f.have}`
-      : `- ${name?name+" — ":""}Taille ${f.size} : demandé ${f.needed}, disponible actuellement ${f.have}`;
-  });
-  return "\n\n" + lines.join("\n");
-}
-async function applyStockForOrderItems(items, order){
-  // items: [{id, size, qty}] — color isn't tracked as stock, only size is.
-  // order (optional): saved INSIDE the same transaction, so the stock is
-  // only taken if the order is really saved, and the order is only saved
-  // if the stock is really available. Nothing can be half-done.
-  const lines = items.filter(it=>it.id && it.size && it.qty);
-  const orderRef = order ? db.collection("orders").doc(order.id) : null;
-  const orderData = order ? (({id, ...rest})=>rest)(order) : null;
-  if(!lines.length){
-    if(!order) return {ok:true};
-    try{ await orderRef.set(orderData); return {ok:true}; }
-    catch(e){ console.error("could not save order", e); return {ok:false, failed:[], error:true, errorMessage:(e&&(e.message||e.code))||String(e)}; }
-  }
-  // Sizes are typed by hand in the admin panel, so match them ignoring case
-  // and stray leading/trailing spaces (e.g. "L" vs "L " typed by accident) —
-  // an exact-string mismatch there would otherwise make a size fail this
-  // check EVERY time, on every device, even though it's visibly in stock.
-  const normSize = s => String(s==null?"":s).trim().toLowerCase();
+/* When a customer completes an order, the ordered quantity is subtracted from
+   that product's matching size, straight in Firestore, using a transaction so
+   two customers ordering the same size at once can't oversell it. Products
+   sold without sizes have no per-size stock to track, so they're skipped —
+   the store owner controls those manually with the "Disponible" toggle. */
+async function decrementProductStock(productId, size, qty){
+  if(!productId || !size || !qty) return;
   try{
-    const result = await db.runTransaction(async (tx)=>{
-      const ids = [...new Set(lines.map(it=>it.id))];
-      const snaps = {};
-      for(const id of ids){
-        snaps[id] = await tx.get(db.collection("products").doc(id));
-      }
-      // Aggregate requested qty per product+size, in case the same
-      // product/size appears more than once across the order lines.
-      const needed = {};
-      lines.forEach(it=>{
-        needed[it.id] = needed[it.id] || {};
-        const key = normSize(it.size);
-        needed[it.id][key] = needed[it.id][key] || {size: it.size, qty: 0};
-        needed[it.id][key].qty += it.qty;
-      });
-      const failed = [];
-      const sizesById = {};
-      const dataById = {};
-      for(const id of ids){
-        const snap = snaps[id];
-        if(!snap.exists){ failed.push({id}); continue; }
-        const data = snap.data() || {};
-        dataById[id] = data;
-        const sizes = Array.isArray(data.sizes) ? data.sizes.slice() : [];
-        sizesById[id] = sizes;
-        Object.keys(needed[id]).forEach(key=>{
-          const wanted = needed[id][key];
-          const idx = sizes.findIndex(s=>normSize(s.size)===key);
-          const have = idx>-1 ? (sizes[idx].qty||0) : 0;
-          if(have < wanted.qty) failed.push({id, size: wanted.size, needed: wanted.qty, have});
-        });
-      }
-      if(failed.length) return {ok:false, failed};
-      const liveUpdate = {};
-      // All requested quantities are still available — apply the decrements.
-      for(const id of ids){
-        const sizes = sizesById[id];
-        Object.keys(needed[id]).forEach(key=>{
-          const idx = sizes.findIndex(s=>normSize(s.size)===key);
-          if(idx>-1) sizes[idx] = Object.assign({}, sizes[idx], {qty: sizes[idx].qty - needed[id][key].qty});
-        });
-        const update = {sizes};
-        // Every size sold out -> flip the product to "Non Disponible" automatically,
-        // exactly like the store owner would do by hand from the admin dashboard.
-        const allSoldOut = sizes.length > 0 && sizes.every(s=>(s.qty||0) <= 0);
-        if(allSoldOut) update.available = false;
-        tx.update(db.collection("products").doc(id), update);
-        const d = dataById[id];
-        liveUpdate[id] = {sizes, available: allSoldOut ? false : (d.available !== false), price: d.price ?? null, oldPrice: d.oldPrice ?? null};
-      }
-      tx.set(db.collection("config").doc("live"), liveUpdate, {merge:true});
-      if(orderRef) tx.set(orderRef, orderData);
-      return {ok:true};
+    await db.runTransaction(async (tx)=>{
+      const ref = db.collection("products").doc(productId);
+      const snap = await tx.get(ref);
+      if(!snap.exists) return;
+      const data = snap.data() || {};
+      const sizes = Array.isArray(data.sizes) ? data.sizes.slice() : [];
+      const idx = sizes.findIndex(s=>s.size===size);
+      if(idx===-1) return;
+      const newQty = Math.max(0, (sizes[idx].qty||0) - qty);
+      sizes[idx] = Object.assign({}, sizes[idx], {qty:newQty});
+      const update = {sizes};
+      // Every size sold out -> flip the product to "Non Disponible" automatically,
+      // exactly like the store owner would do by hand from the admin dashboard.
+      const allSoldOut = sizes.length > 0 && sizes.every(s=>(s.qty||0) <= 0);
+      if(allSoldOut) update.available = false;
+      tx.update(ref, update);
     });
-    if(!result.ok && result.failed && result.failed.length){
-      // Precise diagnostic in the console: exactly which size, requested vs
-      // actually available right now — invaluable if this ever needs
-      // checking again instead of guessing.
-      console.warn("Stock check failed for:", JSON.stringify(result.failed));
-    }
-    return result;
   }catch(e){
-    console.error("could not apply stock for order", e);
-    // Surface the REAL technical error (permission-denied, network, etc.)
-    // instead of swallowing it — this is NOT a "size out of stock" case,
-    // it's a failure to even check the stock, and needs a different
-    // message so it isn't mistaken for a real shortage.
-    return {ok:false, failed:[], error:true, errorMessage: (e && (e.message||e.code)) ? (e.code?`${e.code}: ${e.message||""}`:e.message) : String(e)};
-  }finally{
-    // Refresh the in-memory catalogue right away so this browser's own view
-    // (out-of-stock labels, size dropdowns) reflects the new quantities too,
-    // whether the transaction succeeded or not.
-    try{ PRODUCTS = await loadProducts(); renderProducts(); }catch(e){ console.error(e); }
+    console.error("could not decrement stock for", productId, size, e);
   }
+}
+/* ============ order could not be saved ============ */
+/* If the order can't be written to the database, say so (with the technical
+   reason) instead of silently sending it to WhatsApp as if it had been recorded. */
+function orderSaveFailedMessage(L, err){
+  const code = (err && (err.code || err.message)) || "unknown";
+  return L==="ar"
+    ? "تعذّر تسجيل طلبيتك الآن. من فضلك حاولي مرة أخرى بعد قليل، أو تواصلي معنا عبر واتساب.\n(رمز الخطأ: " + code + ")"
+    : "Impossible d'enregistrer votre commande pour le moment. Merci de réessayer dans un instant ou de nous contacter sur WhatsApp.\n(Code d'erreur : " + code + ")";
+}
+
+/* ============ phone number normalization (Algeria) ============ */
+/* Accepts whatever the customer typed (with/without +213, spaces, dashes...)
+   and reduces it to the plain local format Noest and WhatsApp both expect:
+   10 digits starting with 05, 06 or 07. */
+function normalizeAlgerianPhone(raw){
+  let digits = String(raw||"").replace(/\D/g,"");
+  if(digits.startsWith("00213")) digits = digits.slice(5);
+  else if(digits.startsWith("213")) digits = digits.slice(3);
+  if(digits.length===9 && /^[567]/.test(digits)) digits = "0"+digits;
+  return digits;
+}
+
+async function applyStockForOrderItems(items){
+  // items: [{id, size, qty}] — color isn't tracked as stock, only size is.
+  for(const it of items){
+    await decrementProductStock(it.id, it.size, it.qty||1);
+  }
+  // Refresh the in-memory catalogue right away so this browser's own view
+  // (out-of-stock labels, size dropdowns) reflects the new quantities too.
+  try{
+    PRODUCTS = await loadProducts();
+    renderProducts();
+  }catch(e){ console.error(e); }
 }
 
 /* ============ one order at a time per phone number ============ */
@@ -1079,64 +935,20 @@ async function hasPendingOrderForPhone(phone){
   }
 }
 
-/* Same rule for the customer's full name: while an earlier order under the
-   same first name + last name is still pending, a new one is refused.
-   Names are compared ignoring case, extra spaces and Arabic diacritics, so
-   "هديل " and "هديل" or "Sara" and "sara" count as the same person. */
-function nameKeyOf(name, lastname){
-  const norm = s => String(s||"").normalize("NFKC")
-    .replace(/[\u064B-\u0652\u0640]/g,"")      // harakat + tatweel
-    .replace(/[أإآ]/g,"ا").replace(/ى/g,"ي").replace(/ة/g,"ه")
-    .toLowerCase().replace(/\s+/g," ").trim();
-  return norm(name) + "|" + norm(lastname);
-}
-async function hasPendingOrderForName(name, lastname){
-  const key = nameKeyOf(name, lastname);
-  if(key === "|") return false;
-  const isPending = d => { const x = d.data(); return !x.status || x.status === "pending"; };
-  try{
-    // new orders carry nameKey; older ones are matched on the typed name
-    const [byKey, byName] = await Promise.all([
-      db.collection("orders").where("nameKey","==",key).get(),
-      db.collection("orders").where("lastname","==",String(lastname||"")).get()
-    ]);
-    if(byKey.docs.some(isPending)) return true;
-    return byName.docs.some(d=>isPending(d) && nameKeyOf(d.data().name, d.data().lastname) === key);
-  }catch(e){
-    console.error("could not check for a duplicate name", e);
-    return false; // never block a real order because the check itself failed
-  }
-}
-
 let PRODUCTS = [];
 let activeCat = "all";
 
 function money(n){ return Number(n).toLocaleString("fr-FR") + " DA"; }
 
-/* A product is unavailable if the owner switched it off manually, OR —
-   for products sold by size — every size has run out of stock. This is
-   the single source of truth used everywhere (cards, gallery, search,
-   the order form) so an out-of-stock product can never be reached. */
-function isProductUnavailable(p){
-  if(!p) return true;
-  if(p.available === false) return true;
-  if(p.sizes && p.sizes.length && p.sizes.every(s=>(s.qty||0) <= 0)) return true;
-  return false;
-}
-function availableSizesFor(p){
-  if(!p || !p.sizes) return [];
-  return p.sizes.filter(s=>(s.qty||0) > 0);
-}
-
 function productCard(p){
-  const img = pThumb(p) ? `<img src="${pThumb(p)}" alt="" loading="lazy">` : `<span class="ph">lilya</span>`;
+  const img = (p.images && p.images[0]) ? `<img src="${p.images[0]}" alt="">` : `<span class="ph">lilya</span>`;
   const promo = p.oldPrice ? `<span class="promo-tag">${currentLang==='ar'?'تخفيض':'PROMO'}</span>` : "";
-  const unavailable = isProductUnavailable(p);
+  const unavailable = p.available === false;
   const swatches = (p.colors && p.colors.length) ? `<div class="swatch-row">${p.colors.map(c=>`<span class="sw" style="background:${c.hex}" title="${c.name||''}"></span>`).join("")}</div>` : "";
   const stockBadge = unavailable ? `<span class="stock-badge no">${currentLang==='ar'?'غير متوفر':'Non Disponible'}</span>` : "";
   return `
   <div class="card" data-id="${p.id}">
-    <div class="thumb" onclick="openProductGallery('${p.id}')" style="cursor:pointer;">${img}${promo}${unavailable?`<div class="thumb-unavail-overlay">${currentLang==='ar'?'غير متوفر':'Non Disponible'}</div>`:""}</div>
+    <div class="thumb" onclick="openProductGallery('${p.id}')" style="cursor:pointer;">${img}${promo}</div>
     <div class="info">
       <span class="cat">${p.category}</span>
       <h3>${p.name}</h3>
@@ -1180,7 +992,6 @@ document.querySelectorAll(".cat-chip").forEach(chip=>{
    the cart drawer, so a customer can put several different products
    (each with its own variant) in the cart and check them all out together. */
 let CART = [];
-let CART_KEY_SEQ = 1;
 function defaultColorFor(p){
   return (p.colors && p.colors.length) ? (p.colors[0].name || p.colors[0].hex) : "";
 }
@@ -1192,34 +1003,11 @@ function defaultSizeFor(p){
 function addToCart(id){
   const p = PRODUCTS.find(x=>x.id===id);
   if(!p) return;
-  if(isProductUnavailable(p)){
-    alert(currentLang==='ar' ? "عذرًا، هذا المنتج غير متوفر حاليًا." : "Désolé, ce produit n'est pas disponible actuellement.");
-    return;
-  }
-  const size = defaultSizeFor(p);
-  // Match by product + size (not just product): this way, if the customer
-  // already changed an existing cart line to a different size, clicking
-  // "add to cart" again creates a NEW line at the default size instead of
-  // bumping the other size's quantity — this is what lets her end up with
-  // several sizes of the same product in the cart at once.
-  const line = CART.find(x=>x.id===id && x.size===size);
+  const line = CART.find(x=>x.id===id);
   if(line){ line.qty++; }
-  else{ CART.push({key: "c"+(CART_KEY_SEQ++), id, qty:1, color:defaultColorFor(p), size}); }
+  else{ CART.push({id, qty:1, color:defaultColorFor(p), size:defaultSizeFor(p)}); }
   renderCart();
   document.getElementById("cartOverlay").classList.add("open");
-}
-/* Adds a second (or third...) line for a product already in the cart, at
-   the next in-stock size not already used by one of its lines — the cart
-   equivalent of the "+ إضافة مقاس آخر" button in the order form. */
-function addAnotherSizeToCart(id){
-  const p = PRODUCTS.find(x=>x.id===id);
-  if(!p) return;
-  const used = new Set(CART.filter(l=>l.id===id).map(l=>l.size));
-  const inStock = availableSizesFor(p);
-  const next = inStock.find(s=>!used.has(s.size));
-  if(!next) return; // every in-stock size already has a line
-  CART.push({key: "c"+(CART_KEY_SEQ++), id, qty:1, color:defaultColorFor(p), size: next.size});
-  renderCart();
 }
 function renderCart(){
   const lines = document.getElementById("cartLines");
@@ -1233,70 +1021,46 @@ function renderCart(){
   lines.innerHTML = CART.map(l=>{
     const p = PRODUCTS.find(x=>x.id===l.id);
     if(!p) return "";
-    const img = pThumb(p) ? `<img src="${pThumb(p)}">` : "";
+    const img = (p.images && p.images[0]) ? `<img src="${p.images[0]}">` : "";
     let colorHTML = "";
     if(p.colors && p.colors.length){
       colorHTML = `<div class="opt-group"><span class="opt-label">${dict.opt_color[L]}</span>
-        <select onchange="updateCartItem('${l.key}','color',this.value)">
+        <select onchange="updateCartItem('${l.id}','color',this.value)">
           ${p.colors.map(c=>`<option value="${(c.name||c.hex)}" ${ (c.name||c.hex)===l.color ? "selected":"" }>${c.name||c.hex}</option>`).join("")}
         </select></div>`;
     }
     let sizeHTML = "";
-    let addSizeHTML = "";
     if(p.sizes && p.sizes.length){
-      const inStock = availableSizesFor(p);
       sizeHTML = `<div class="opt-group"><span class="opt-label">${dict.opt_size[L]}</span>
-        <select onchange="updateCartItem('${l.key}','size',this.value)">
-          ${inStock.map(s=>`<option value="${s.size}" ${s.size===l.size?"selected":""}>${s.size} — ${L==='ar'?('متبقي '+s.qty):('reste '+s.qty)}</option>`).join("")}
+        <select onchange="updateCartItem('${l.id}','size',this.value)">
+          ${p.sizes.map(s=>`<option value="${s.size}" ${s.size===l.size?"selected":""} ${s.qty<=0?"disabled":""}>${s.size}${s.qty<=0?(L==='ar'?' (نفذ)':' (épuisé)'):''}</option>`).join("")}
         </select></div>`;
-      const used = new Set(CART.filter(x=>x.id===l.id).map(x=>x.size));
-      if(inStock.some(s=>!used.has(s.size))){
-        addSizeHTML = `<button type="button" class="cart-add-size" onclick="addAnotherSizeToCart('${l.id}')" style="background:none;border:1px dashed var(--rose);color:var(--rose);border-radius:20px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer;align-self:flex-start;">+ ${L==='ar'?'مقاس آخر':'Autre taille'}</button>`;
-      }
     }
-    const maxQty = (p.sizes && p.sizes.length) ? Math.max(1, (p.sizes.find(x=>x.size===l.size)||{}).qty||0) : "";
     const qtyHTML = `<div class="opt-group"><span class="opt-label">${dict.opt_qty[L]}</span>
-        <input type="number" min="1" ${maxQty?`max="${maxQty}"`:""} value="${l.qty}" onchange="updateCartItem('${l.key}','qty',this.value)"></div>`;
+        <input type="number" min="1" value="${l.qty}" onchange="updateCartItem('${l.id}','qty',this.value)"></div>`;
     return `<div class="cart-item">
       <div class="cart-item-top">
         <div class="thumb">${img}</div>
         <div class="tt"><h5>${p.name}</h5><small>${money(p.price)}</small></div>
-        <button type="button" class="cart-item-remove" onclick="removeFromCart('${l.key}')">${dict.cart_remove[L]}</button>
+        <button type="button" class="cart-item-remove" onclick="removeFromCart('${l.id}')">${dict.cart_remove[L]}</button>
       </div>
-      <div class="cart-item-options">${colorHTML}${sizeHTML}${qtyHTML}${addSizeHTML}</div>
+      <div class="cart-item-options">${colorHTML}${sizeHTML}${qtyHTML}</div>
     </div>`;
   }).join("");
 }
-function updateCartItem(key, field, value){
-  const line = CART.find(x=>x.key===key);
+function updateCartItem(id, field, value){
+  const line = CART.find(x=>x.id===id);
   if(!line) return;
-  const p = PRODUCTS.find(x=>x.id===line.id);
-  if(field==="qty"){
-    // Never let the cart hold more of a size than is actually left in stock.
-    let max = Infinity;
-    if(p && p.sizes && p.sizes.length){
-      const s = p.sizes.find(x=>x.size===line.size);
-      max = s ? Math.max(1, s.qty||0) : 1;
-    }
-    line.qty = Math.max(1, Math.min(max, parseInt(value)||1));
-  }
-  else{
-    line[field] = value;
-    // Changing the size can change how much stock is left, so re-clamp qty.
-    if(field==="size" && p && p.sizes && p.sizes.length){
-      const s = p.sizes.find(x=>x.size===value);
-      const max = s ? Math.max(1, s.qty||0) : 1;
-      line.qty = Math.min(line.qty, max);
-    }
-  }
+  if(field==="qty"){ line.qty = Math.max(1, parseInt(value)||1); }
+  else{ line[field] = value; }
   renderCart();
   if(ORDER_MODE==="cart" && document.getElementById("orderOverlay").classList.contains("open")){
     renderCartSummary();
     updatePriceBreakdown();
   }
 }
-function removeFromCart(key){
-  CART = CART.filter(x=>x.key!==key);
+function removeFromCart(id){
+  CART = CART.filter(x=>x.id!==id);
   renderCart();
 }
 document.getElementById("cartCheckout").onclick = ()=>{
@@ -1322,27 +1086,19 @@ document.getElementById("searchInput").addEventListener("input", e=>{
   const results = document.getElementById("searchResults");
   if(!q){ results.innerHTML=""; return; }
   const matches = PRODUCTS.filter(p=>p.name.toLowerCase().includes(q) || (p.description||"").toLowerCase().includes(q));
-  results.innerHTML = matches.map(p=>{
-    const unavailable = isProductUnavailable(p);
-    const clickAttr = unavailable ? "" : `onclick="openOrderForm('${p.id}');document.getElementById('searchOverlay').classList.remove('open')"`;
-    const badge = unavailable ? `<span class="stock-badge no">${currentLang==='ar'?'غير متوفر':'Non Disponible'}</span>` : "";
-    return `
-    <div class="sr-item" ${clickAttr} style="${unavailable?'opacity:.55;cursor:default;':''}">
-      <div class="th">${pThumb(p)?`<img src="${pThumb(p)}">`:""}</div>
-      <div><b>${p.name}</b><br><small>${money(p.price)}</small> ${badge}</div>
-    </div>`;
-  }).join("") || `<div class="empty-note">${dict.no_products[currentLang]}</div>`;
+  results.innerHTML = matches.map(p=>`
+    <div class="sr-item" onclick="openOrderForm('${p.id}');document.getElementById('searchOverlay').classList.remove('open')">
+      <div class="th">${p.images&&p.images[0]?`<img src="${p.images[0]}">`:""}</div>
+      <div><b>${p.name}</b><br><small>${money(p.price)}</small></div>
+    </div>`).join("") || `<div class="empty-note">${dict.no_products[currentLang]}</div>`;
 });
 
 /* ============ order form + price calc ============ */
-let OF_SIZE_ROWS = []; // for the current single-product order form: [{size, qty}, ...] — lets a customer order several sizes of the same product in one go
 function populateVariantFields(p){
   const colorSelect = document.getElementById("of_color_select");
   const colorInput = document.getElementById("of_color");
+  const sizeSelect = document.getElementById("of_size_select");
   const sizeInput = document.getElementById("of_size");
-  const sizeRowsBox = document.getElementById("of_sizeRows");
-  const addRowBtn = document.getElementById("of_addSizeRow");
-  const rowsHint = document.getElementById("of_sizeRowsHint");
   const L = currentLang;
   if(p && p.colors && p.colors.length){
     colorSelect.innerHTML = p.colors.map(c=>`
@@ -1359,141 +1115,19 @@ function populateVariantFields(p){
     colorInput.value = "";
   }
   if(p && p.sizes && p.sizes.length){
-    // Sized product: build the size-rows UI. One row = one size + its own
-    // quantity, so choosing quantity 2+ lets the customer split it across
-    // two or more different sizes instead of being locked to a single size.
+    sizeSelect.innerHTML = p.sizes.map(s=>`<option value="${s.size}" ${s.qty<=0?"disabled":""}>${s.size} (${s.qty<=0?(L==='ar'?'نفذ':'épuisé'):s.qty})</option>`).join("");
+    sizeSelect.style.display = "";
     sizeInput.style.display = "none";
-    OF_SIZE_ROWS = [{size: defaultSizeFor(p), qty: 1}];
-    renderSizeRows(p);
-    sizeRowsBox.style.display = "flex";
-    const canAddMore = availableSizesFor(p).length > 1;
-    addRowBtn.style.display = canAddMore ? "" : "none";
-    rowsHint.style.display = canAddMore ? "" : "none";
-    setQtyFieldVisible(false);
   }else{
+    sizeSelect.style.display = "none";
     sizeInput.style.display = "";
     sizeInput.value = "";
-    OF_SIZE_ROWS = [];
-    sizeRowsBox.style.display = "none";
-    sizeRowsBox.innerHTML = "";
-    addRowBtn.style.display = "none";
-    rowsHint.style.display = "none";
-    setQtyFieldVisible(true);
   }
-}
-function setQtyFieldVisible(visible){
-  document.getElementById("of_qtyLabel").style.display = visible ? "" : "none";
-  document.getElementById("of_qty").style.display = visible ? "" : "none";
-}
-/* Redraws the size-rows box from OF_SIZE_ROWS and wires up each row's
-   controls. Called after every add/remove/edit so the DOM always matches
-   the underlying array. */
-function renderSizeRows(p){
-  const box = document.getElementById("of_sizeRows");
-  const inStock = availableSizesFor(p);
-  box.innerHTML = OF_SIZE_ROWS.map((row,i)=>`
-    <div style="display:flex;gap:8px;align-items:center;">
-      <select class="of-size-row-select" data-idx="${i}" style="flex:1;padding:10px 11px;border:1.5px solid var(--line);border-radius:7px;font-size:14px;">
-        ${inStock.map(s=>`<option value="${s.size}" ${s.size===row.size?"selected":""}>${s.size} — ${currentLang==='ar'?('متبقي '+s.qty):('reste '+s.qty)}</option>`).join("")}
-      </select>
-      <input type="number" class="of-size-row-qty" data-idx="${i}" min="1" max="${(inStock.find(s=>s.size===row.size)||{}).qty||1}" value="${row.qty}" style="width:72px;padding:10px 8px;border:1.5px solid var(--line);border-radius:7px;font-size:14px;">
-      ${OF_SIZE_ROWS.length>1?`<button type="button" class="of-size-row-remove" data-idx="${i}" style="background:rgba(0,0,0,.12);border:none;border-radius:50%;width:28px;height:28px;cursor:pointer;font-size:13px;flex-shrink:0;">×</button>`:""}
-    </div>`).join("");
-  box.querySelectorAll(".of-size-row-select").forEach(sel=>{
-    sel.addEventListener("change", e=>{
-      const idx = +e.target.dataset.idx;
-      OF_SIZE_ROWS[idx].size = e.target.value;
-      // Clamp the quantity to whatever is actually left of the newly
-      // chosen size, so switching size never leaves a requested qty
-      // higher than what's in stock.
-      const avail = (inStock.find(s=>s.size===e.target.value)||{}).qty || 1;
-      OF_SIZE_ROWS[idx].qty = Math.min(OF_SIZE_ROWS[idx].qty, avail);
-      renderSizeRows(p);
-      updatePriceBreakdown();
-    });
-  });
-  box.querySelectorAll(".of-size-row-qty").forEach(inp=>{
-    const onChange = e=>{
-      const idx = +e.target.dataset.idx;
-      const avail = (inStock.find(s=>s.size===OF_SIZE_ROWS[idx].size)||{}).qty || 1;
-      OF_SIZE_ROWS[idx].qty = Math.max(1, Math.min(avail, parseInt(e.target.value)||1));
-      e.target.value = OF_SIZE_ROWS[idx].qty;
-      updatePriceBreakdown();
-    };
-    inp.addEventListener("input", onChange);
-    inp.addEventListener("change", onChange);
-  });
-  box.querySelectorAll(".of-size-row-remove").forEach(btn=>{
-    btn.addEventListener("click", e=>{
-      OF_SIZE_ROWS.splice(+e.target.dataset.idx, 1);
-      renderSizeRows(p);
-      refreshAddSizeRowVisibility(p);
-      updatePriceBreakdown();
-    });
-  });
-  refreshAddSizeRowVisibility(p);
-}
-function refreshAddSizeRowVisibility(p){
-  const addRowBtn = document.getElementById("of_addSizeRow");
-  const rowsHint = document.getElementById("of_sizeRowsHint");
-  const inStock = availableSizesFor(p);
-  // No point offering another row once every in-stock size is already used.
-  const canAddMore = OF_SIZE_ROWS.length < inStock.length;
-  addRowBtn.style.display = canAddMore ? "" : "none";
-  rowsHint.style.display = canAddMore ? "" : "none";
-}
-document.getElementById("of_addSizeRow").addEventListener("click", ()=>{
-  const id = document.getElementById("of_product").value;
-  const p = PRODUCTS.find(x=>x.id===id);
-  if(!p) return;
-  const inStock = availableSizesFor(p);
-  const used = new Set(OF_SIZE_ROWS.map(r=>r.size));
-  const next = inStock.find(s=>!used.has(s.size));
-  if(!next) return; // every size already has a row
-  OF_SIZE_ROWS.push({size: next.size, qty: 1});
-  renderSizeRows(p);
-  updatePriceBreakdown();
-});
-/* Full photos are stored apart from the product (products/{id}/media/main)
-   and loaded only when the customer opens that product, then kept in memory. */
-const MEDIA_CACHE = {};
-function pThumb(p){ return p.thumb || (p.images && p.images[0]) || ""; }
-async function loadProductMedia(p){
-  if(!p.mediaSplit) return {images:p.images||[], imagesSecondary:p.imagesSecondary||[]};
-  if(MEDIA_CACHE[p.id]) return MEDIA_CACHE[p.id];
-  if(p.fromCatalog){
-    try{
-      const r = await fetch("/media/"+encodeURIComponent(p.id)+".json");
-      if(r.ok){ const d = await r.json(); MEDIA_CACHE[p.id] = {images:d.images||[], imagesSecondary:d.imagesSecondary||[]}; return MEDIA_CACHE[p.id]; }
-    }catch(e){ console.error("static media failed", e); }
-  }
-  try{
-    const m = await db.collection("products").doc(p.id).collection("media").doc("main").get();
-    const d = m.exists ? m.data() : {};
-    MEDIA_CACHE[p.id] = {images:d.images||[], imagesSecondary:d.imagesSecondary||[]};
-  }catch(e){ console.error("media load failed", e); return {images:[pThumb(p)].filter(Boolean), imagesSecondary:[]}; }
-  return MEDIA_CACHE[p.id];
 }
 function openProductGallery(productId){
   const p = PRODUCTS.find(x=>x.id===productId);
   if(!p) return;
-  if(p.mediaSplit && !MEDIA_CACHE[p.id] && !isProductUnavailable(p)){
-    // show the thumbnail right away, then swap in the full photos
-    renderProductGallery(p, {images:[pThumb(p)].filter(Boolean), imagesSecondary:[]});
-    loadProductMedia(p).then(m=>{
-      if(document.getElementById("galleryOverlay").classList.contains("open")
-         && document.getElementById("galleryName").textContent === (p.name||"")) renderProductGallery(p, m);
-    });
-    return;
-  }
-  loadProductMedia(p).then(m=>renderProductGallery(p, m));
-}
-function renderProductGallery(p, media){
-  if(isProductUnavailable(p)){
-    alert(currentLang==='ar' ? "عذرًا، هذا المنتج غير متوفر حاليًا." : "Désolé, ce produit n'est pas disponible actuellement.");
-    return;
-  }
-  const images = [...(media.images||[]), ...(media.imagesSecondary||[])];
+  const images = [...(p.images||[]), ...(p.imagesSecondary||[])];
   const mainImg = document.getElementById("galleryMainImg");
   mainImg.src = images[0] || "";
   document.getElementById("galleryThumbs").innerHTML = images.map((img,i)=>`
@@ -1524,21 +1158,15 @@ function setSingleProductFieldsVisible(visible){
   if(!visible){
     document.getElementById("of_color_select").style.display = "none";
     document.getElementById("of_color").style.display = "none";
+    document.getElementById("of_size_select").style.display = "none";
     document.getElementById("of_size").style.display = "none";
-    document.getElementById("of_sizeRows").style.display = "none";
-    document.getElementById("of_addSizeRow").style.display = "none";
-    document.getElementById("of_sizeRowsHint").style.display = "none";
   }
 }
 function openOrderForm(productId){
-  const p = productId ? PRODUCTS.find(x=>x.id===productId) : null;
-  if(productId && isProductUnavailable(p)){
-    alert(currentLang==='ar' ? "عذرًا، هذا المنتج غير متوفر حاليًا ولا يمكن طلبه." : "Désolé, ce produit n'est pas disponible actuellement et ne peut pas être commandé.");
-    return;
-  }
   ORDER_MODE = "single";
   document.getElementById("of_cartSummary").style.display = "none";
   setSingleProductFieldsVisible(true);
+  const p = productId ? PRODUCTS.find(x=>x.id===productId) : null;
   document.getElementById("of_product").value = productId || "";
   document.getElementById("of_productLine").textContent = p ? `${p.name} — ${money(p.price)}` : (currentLang==="ar"?"اختاري منتجا من صفحة المنتجات":"Sélectionnez un produit dans la boutique");
   populateVariantFields(p);
@@ -1559,27 +1187,6 @@ function renderCartSummary(){
 }
 function openOrderFormCart(){
   if(!CART.length) return;
-  const L = currentLang;
-  // Re-check every cart line against the latest stock before opening the
-  // form: a product or size may have sold out while it was sitting in
-  // the cart, and it must not reach the order form in that state.
-  const blocked = CART.filter(l=>{
-    const p = PRODUCTS.find(x=>x.id===l.id);
-    if(!p || isProductUnavailable(p)) return true;
-    if(p.sizes && p.sizes.length){
-      const s = p.sizes.find(x=>x.size===l.size);
-      if(!s || (s.qty||0) <= 0) return true;
-    }
-    return false;
-  });
-  if(blocked.length){
-    CART = CART.filter(l=>!blocked.includes(l));
-    renderCart();
-    alert(L==="ar"
-      ? "عذرًا، أحد المنتجات في عربتك لم يعد متوفرًا (أو نفذ المقاس المختار) وتم إزالته. من فضلك تحققي من العربة."
-      : "Désolé, un des produits de votre panier n'est plus disponible (ou la taille choisie est épuisée) et a été retiré. Merci de vérifier votre panier.");
-    if(!CART.length) return;
-  }
   ORDER_MODE = "cart";
   document.getElementById("of_product").value = "";
   setSingleProductFieldsVisible(false);
@@ -1593,15 +1200,6 @@ function currentUnitPrice(){
   const id = document.getElementById("of_product").value;
   const p = PRODUCTS.find(x=>x.id===id);
   return p ? p.price : 0;
-}
-function currentSingleQty(){
-  // Total quantity for the single "buy now" product: the sum of every
-  // size-row's quantity when the product has tracked sizes, otherwise the
-  // plain quantity field.
-  if(OF_SIZE_ROWS && OF_SIZE_ROWS.length){
-    return OF_SIZE_ROWS.reduce((s,r)=>s+(r.qty||0), 0) || 1;
-  }
-  return parseInt(document.getElementById("of_qty").value)||1;
 }
 function cartSubtotal(){
   return CART.reduce((s,l)=>{
@@ -1691,7 +1289,7 @@ function updatePriceBreakdown(){
   if(!w){ box.innerHTML = currentLang==="ar"?"اختاري الولاية لعرض سعر التوصيل":"Choisissez la wilaya pour voir le tarif"; return; }
   const shipRaw = deliv==="home" ? w.home : w.desk;
   const ship = (shipRaw===null||shipRaw===undefined) ? w.home : shipRaw;
-  const subtotal = ORDER_MODE==="cart" ? cartSubtotal() : currentUnitPrice()*currentSingleQty();
+  const subtotal = ORDER_MODE==="cart" ? cartSubtotal() : currentUnitPrice()*(parseInt(document.getElementById("of_qty").value)||1);
   const total = subtotal + ship;
   const L = currentLang;
   box.innerHTML = `
@@ -1705,56 +1303,11 @@ function updatePriceBreakdown(){
   document.getElementById(id).addEventListener("input", updatePriceBreakdown);
 });
 
-function showOrderSuccess(){
-  let ov = document.getElementById("orderSuccessOverlay");
-  if(!ov){
-    ov = document.createElement("div");
-    ov.id = "orderSuccessOverlay";
-    ov.style.cssText = "position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px;";
-    ov.innerHTML = '<div style="background:#fff;border-radius:14px;padding:28px 24px;max-width:360px;width:100%;text-align:center;font-family:Cairo,sans-serif;">'
-      + '<p dir="rtl" style="margin:0 0 20px;font-size:17px;font-weight:700;color:var(--ink,#3b3536);line-height:1.7;">تم قبول طلبكم سوف نتصل بكم في أقرب وقت</p>'
-      + '<button type="button" style="border:none;border-radius:8px;background:var(--ink,#3b3536);color:#fff;font-weight:700;padding:10px 28px;cursor:pointer;font-family:inherit;">OK</button>'
-      + '</div>';
-    ov.addEventListener("click", ()=>{ ov.style.display = "none"; });
-    document.body.appendChild(ov);
-  }
-  ov.style.display = "flex";
-}
-function orderSaveFailedMessage(L){
-  return L==="ar"
-    ? "تعذّر إرسال الطلب بسبب مشكلة في الاتصال. من فضلك تحققي من الإنترنت وأعيدي المحاولة."
-    : "La commande n'a pas pu être envoyée (problème de connexion). Vérifiez votre connexion et réessayez.";
-}
-
 document.getElementById("orderForm").addEventListener("submit", async function(e){
   e.preventDefault();
-
-  // Guard against double submission: a slow connection or a mobile browser
-  // that silently blocked the WhatsApp popup on a first tap can make a
-  // customer tap "إرسال" a second time. Without this, the second tap would
-  // run the whole flow again and could get rejected by the stock check even
-  // though the FIRST tap already succeeded — which looked, from the
-  // customer's side, exactly like "the size is available yet it's refused".
-  const submitBtn = this.querySelector('button[type="submit"]');
-  if(submitBtn.disabled) return;
-  submitBtn.disabled = true;
-  const submitBtnOriginalHTML = submitBtn.innerHTML;
-
-  // Open the WhatsApp tab SYNCHRONOUSLY, right here, before any "await"
-  // below. Mobile browsers only allow window.open() to succeed when it is
-  // still inside the original tap's call stack — once the code "awaits"
-  // something (like the stock check), many mobile browsers silently block
-  // a later window.open() as a pop-up. Opening a blank tab now and filling
-  // in its address once the order is confirmed avoids that block, so
-  // "إرسال الطلب عبر واتساب" reliably opens WhatsApp instead of doing
-  // nothing (which is what was tricking customers into tapping twice).
-
-  try{
-  const L = currentLang;
-  submitBtn.innerHTML = `<span>${L==="ar"?"جارٍ الإرسال...":"Envoi en cours..."}</span>`;
   const name = document.getElementById("of_name").value;
   const lastname = document.getElementById("of_lastname").value;
-  const phone = document.getElementById("of_phone").value;
+  const phone = normalizeAlgerianPhone(document.getElementById("of_phone").value);
   const wc = parseInt(document.getElementById("of_wilaya").value);
   const w = WILAYAS.find(x=>x.code===wc);
   const commune = document.getElementById("of_commune").value;
@@ -1762,7 +1315,14 @@ document.getElementById("orderForm").addEventListener("submit", async function(e
   const officeSelect = document.getElementById("of_office");
   const officeIdx = officeSelect.style.display !== "none" ? parseInt(officeSelect.value) : NaN;
   const chosenOffice = (!isNaN(officeIdx) && w) ? (getOfficesForWilaya(w.name)[officeIdx] || null) : null;
-  const notes = document.getElementById("of_notes").value.trim();
+  const L = currentLang;
+
+  if(!/^0[5-7]\d{8}$/.test(phone)){
+    alert(L==="ar"
+      ? "رقم الهاتف غير صحيح. من فضلك اكتبيه بالصيغة المحلية الجزائرية (10 أرقام تبدأ بـ 05 أو 06 أو 07)، بدون رمز الدولة."
+      : "Numéro de téléphone invalide. Merci de le saisir au format local algérien (10 chiffres commençant par 05, 06 ou 07), sans indicatif pays.");
+    return;
+  }
 
   if(!w){ alert(L==="ar"?"من فضلك اختاري الولاية":"Veuillez choisir la wilaya"); return; }
 
@@ -1770,13 +1330,6 @@ document.getElementById("orderForm").addEventListener("submit", async function(e
     alert(L==="ar"
       ? "لديك طلبية سابقة بنفس رقم الهاتف بانتظار التأكيد. من فضلك انتظري تأكيدها قبل إرسال طلبية جديدة، أو تواصلي معنا عبر واتساب لتعديلها."
       : "Vous avez déjà une commande en attente avec ce numéro. Merci d'attendre sa confirmation avant d'en envoyer une nouvelle, ou contactez-nous sur WhatsApp pour la modifier.");
-    return;
-  }
-
-  if(await hasPendingOrderForName(name, lastname)){
-    alert(L==="ar"
-      ? "توجد طلبية سابقة بنفس الاسم واللقب بانتظار التأكيد. من فضلك انتظري تأكيدها قبل إرسال طلبية جديدة، أو تواصلي معنا عبر واتساب لتعديلها."
-      : "Une commande au même nom et prénom est déjà en attente. Merci d'attendre sa confirmation avant d'en envoyer une nouvelle, ou contactez-nous sur WhatsApp pour la modifier.");
     return;
   }
 
@@ -1792,7 +1345,6 @@ document.getElementById("orderForm").addEventListener("submit", async function(e
       return p ? {id:p.id, name:p.name, price:p.price, color:l.color||"", size:l.size||"", qty:l.qty} : null;
     }).filter(Boolean);
     if(!items.length) return;
-
     const subtotal = items.reduce((s,it)=>s+it.price*it.qty,0);
     const total = subtotal + ship;
 
@@ -1801,117 +1353,122 @@ document.getElementById("orderForm").addEventListener("submit", async function(e
       createdAt: new Date().toISOString(),
       status: "pending", // pending -> confirmed -> sent_to_noest (managed from the admin dashboard)
       items,
-      name, lastname, phone, nameKey: nameKeyOf(name, lastname),
+      name, lastname, phone,
       wilaya: w.name, wilayaCode: w.code, commune,
       deliv: delivLabel,
       office: chosenOffice ? {label:chosenOffice.label, address:chosenOffice.address, phones:chosenOffice.phones} : null,
-      shipping: ship, subtotal, total, notes
+      shipping: ship, subtotal, total
     };
-
-    // Reserve stock AND save the order in one atomic step.
-    const stockResult = await applyStockForOrderItems(items.map(it=>({id:it.id, size:it.size, qty:it.qty})), order);
-    if(!stockResult.ok && stockResult.error){ alert(orderSaveFailedMessage(L)); return; }
-    if(!stockResult.ok){
-      alert((L==="ar"
-        ? "عذرًا، الكمية المطلوبة من أحد المنتجات في عربتك لم تعد متوفرة. تم تحديث الكميات المتاحة، من فضلك تحققي من العربة وحاولي مجددًا."
-        : "Désolé, la quantité demandée pour un des produits de votre panier n'est plus disponible. Les quantités ont été mises à jour, merci de vérifier votre panier et réessayer.")
-        + stockFailureDetail(stockResult, items, L));
-      renderCart();
-      if(document.getElementById("orderOverlay").classList.contains("open")) renderCartSummary();
+    try{
+      const {id, ...orderData} = order;
+      await db.collection("orders").doc(id).set(orderData);
+    }catch(err){
+      console.error("could not log order", err);
+      alert(orderSaveFailedMessage(L, err));
       return;
     }
+    await applyStockForOrderItems(items.map(it=>({id:it.id, size:it.size, qty:it.qty})));
 
+    const itemLines = items.map(it=>{
+      const details = [it.color, it.size].filter(Boolean).join(" - ");
+      return `- ${it.name}${details?(" ("+details+")"):""} × ${it.qty} — ${money(it.price*it.qty)}`;
+    });
+    const lines = L==="ar" ? [
+      `طلب جديد من موقع lilya_brannd`,
+      `المنتجات:`,
+      ...itemLines,
+      `الاسم واللقب: ${name} ${lastname}`,
+      `الهاتف: ${phone}`,
+      `الولاية: ${w.name} - البلدية: ${commune}`,
+      `طريقة التوصيل: ${delivLabel}${chosenOffice?(" — "+chosenOffice.label):""}`,
+      `سعر المنتجات: ${money(subtotal)}`,
+      `سعر التوصيل: ${money(ship)}`,
+      `المجموع الكلي: ${money(total)}`
+    ] : [
+      `Nouvelle commande — lilya_brannd`,
+      `Produits:`,
+      ...itemLines,
+      `Nom et prénom: ${name} ${lastname}`,
+      `Téléphone: ${phone}`,
+      `Wilaya: ${w.name} - Commune: ${commune}`,
+      `Livraison: ${delivLabel}${chosenOffice?(" — "+chosenOffice.label):""}`,
+      `Prix produits: ${money(subtotal)}`,
+      `Frais de livraison: ${money(ship)}`,
+      `Total: ${money(total)}`
+    ];
+    const msg = encodeURIComponent(lines.join("\n"));
+    window.open(`https://wa.me/213670246200?text=${msg}`, "_blank");
     document.getElementById("orderOverlay").classList.remove("open");
     CART = [];
     renderCart();
     this.reset();
-    showOrderSuccess();
     return;
   }
 
-  /* ---- single "buy now" product — can now cover several sizes at once ---- */
+  /* ---- single "buy now" product (unchanged behaviour) ---- */
   const id = document.getElementById("of_product").value;
   const p = PRODUCTS.find(x=>x.id===id);
   const colorChecksVisible = document.getElementById("of_color_select").style.display !== "none";
   const color = colorChecksVisible
     ? Array.from(document.querySelectorAll(".of-color-check:checked")).map(cb=>cb.value).join(", ")
     : document.getElementById("of_color").value;
+  const size = document.getElementById("of_size_select").style.display !== "none" ? document.getElementById("of_size_select").value : document.getElementById("of_size").value;
+  const qty = parseInt(document.getElementById("of_qty").value)||1;
 
   if(colorChecksVisible && !color){ alert(L==="ar"?"من فضلك اختاري لونا واحدا على الأقل":"Veuillez choisir au moins une couleur"); return; }
 
-  if(p && isProductUnavailable(p)){
-    alert(L==="ar" ? "عذرًا، هذا المنتج لم يعد متوفرًا." : "Désolé, ce produit n'est plus disponible.");
-    document.getElementById("orderOverlay").classList.remove("open");
-    return;
-  }
-
-  // Build the size/qty lines for this product: the size-rows the customer
-  // filled in (one row = one size + its own quantity — this is what lets
-  // her order, say, 2 in size M and 1 in size L in a single order) for
-  // products with tracked sizes, or a single free-text size + the plain
-  // quantity field for products without tracked sizes.
-  let sizeLines;
-  if(p && p.sizes && p.sizes.length && OF_SIZE_ROWS.length){
-    const merged = {}; // in case the same size was picked in two rows
-    OF_SIZE_ROWS.forEach(r=>{ if(r.size) merged[r.size] = (merged[r.size]||0) + (r.qty||0); });
-    sizeLines = Object.keys(merged).map(size=>({size, qty:merged[size]}));
-    if(!sizeLines.length){ alert(L==="ar"?"من فضلك اختاري مقاسًا واحدًا على الأقل":"Veuillez choisir au moins une taille"); return; }
-  }else{
-    const size = document.getElementById("of_size").value;
-    const qty = parseInt(document.getElementById("of_qty").value)||1;
-    sizeLines = [{size, qty}];
-  }
-
-  const items = sizeLines.map(l=>({
-    id: p ? p.id : "", name: p ? p.name : "-", price: p ? p.price : 0,
-    color, size: l.size||"", qty: l.qty
-  }));
-
-  const subtotal = items.reduce((s,it)=>s+it.price*it.qty,0);
+  const unit = p ? p.price : 0;
+  const subtotal = unit*qty;
   const total = subtotal + ship;
 
   const order = {
     id: "o_"+Date.now(),
     createdAt: new Date().toISOString(),
     status: "pending", // pending -> confirmed -> sent_to_noest (managed from the admin dashboard)
-    items,
-    name, lastname, phone, nameKey: nameKeyOf(name, lastname),
+    product: p ? {id:p.id, name:p.name, price:p.price} : null,
+    name, lastname, phone,
     wilaya: w.name, wilayaCode: w.code, commune,
     deliv: delivLabel,
     office: chosenOffice ? {label:chosenOffice.label, address:chosenOffice.address, phones:chosenOffice.phones} : null,
-    shipping: ship, subtotal, total, notes
+    color, size, qty, shipping: ship, total
   };
-
-  // Reserve stock AND save the order in one atomic step.
-  {
-    const stockResult = await applyStockForOrderItems(p ? items.map(it=>({id:it.id, size:it.size, qty:it.qty})) : [], order);
-    if(!stockResult.ok && stockResult.error){ alert(orderSaveFailedMessage(L)); return; }
-    if(!stockResult.ok){
-      alert((L==="ar"
-        ? "عذرًا، أحد المقاسات المطلوبة لم يعد متوفرًا بالكمية المطلوبة. من فضلك تحققي من المقاسات والكميات المحدّثة أدناه."
-        : "Désolé, une des tailles demandées n'est plus disponible en quantité suffisante. Merci de vérifier les tailles et quantités mises à jour ci-dessous.")
-        + stockFailureDetail(stockResult, items, L));
-      // applyStockForOrderItems already reloaded PRODUCTS with the true,
-      // current stock — re-read the product from that fresh list (not the
-      // "p" captured at the top of this handler, which still points to the
-      // old, pre-refresh numbers) so the size dropdown shown to the
-      // customer reflects reality instead of a stale quantity.
-      const freshP = PRODUCTS.find(x=>x.id===id);
-      populateVariantFields(freshP);
-      return;
-    }
+  try{
+    const {id: _oid, ...orderData} = order;
+    await db.collection("orders").doc(_oid).set(orderData);
+  }catch(err){
+    console.error("could not log order", err);
+    alert(orderSaveFailedMessage(L, err));
+    return;
   }
+  if(p) await applyStockForOrderItems([{id:p.id, size, qty}]);
 
+  const lines = L==="ar" ? [
+    `طلب جديد من موقع lilya_brannd`,
+    `المنتج: ${p?p.name:"-"} ${color?("- اللون: "+color):""} ${size?("- المقاس: "+size):""}`,
+    `الكمية: ${qty}`,
+    `الاسم واللقب: ${name} ${lastname}`,
+    `الهاتف: ${phone}`,
+    `الولاية: ${w.name} - البلدية: ${commune}`,
+    `طريقة التوصيل: ${delivLabel}${chosenOffice?(" — "+chosenOffice.label):""}`,
+    `سعر المنتج: ${money(subtotal)}`,
+    `سعر التوصيل: ${money(ship)}`,
+    `المجموع الكلي: ${money(total)}`
+  ] : [
+    `Nouvelle commande — lilya_brannd`,
+    `Produit: ${p?p.name:"-"} ${color?("- Couleur: "+color):""} ${size?("- Taille: "+size):""}`,
+    `Quantité: ${qty}`,
+    `Nom et prénom: ${name} ${lastname}`,
+    `Téléphone: ${phone}`,
+    `Wilaya: ${w.name} - Commune: ${commune}`,
+    `Livraison: ${delivLabel}${chosenOffice?(" — "+chosenOffice.label):""}`,
+    `Prix produit: ${money(subtotal)}`,
+    `Frais de livraison: ${money(ship)}`,
+    `Total: ${money(total)}`
+  ];
+  const msg = encodeURIComponent(lines.join("\n"));
+  window.open(`https://wa.me/213670246200?text=${msg}`, "_blank");
   document.getElementById("orderOverlay").classList.remove("open");
-  OF_SIZE_ROWS = [];
   this.reset();
-  showOrderSuccess();
-  }finally{
-    // Whatever happened above (success, a validation stop, or a rejected
-    // stock check), always leave the form usable again for a next attempt...
-    submitBtn.disabled = false;
-    submitBtn.innerHTML = submitBtnOriginalHTML;
-  }
 });
 
 /* ============ init ============ */
@@ -1920,21 +1477,14 @@ document.getElementById("orderForm").addEventListener("submit", async function(e
   renderProducts();
   applyLang("ar");
   applyLivePricing();
-  // Live refresh if the admin updates products while this tab is open.
-  // Interval kept fairly long (60s) and skipped while the tab isn't visible,
-  // because this reads the whole products collection every time it runs —
-  // on a free Firestore plan, doing this too often across many open
-  // customer tabs can exhaust the daily read quota and make the WHOLE site
-  // (including checkout) start failing with "resource-exhausted" errors,
-  // which looks like a stock bug but isn't one.
+  // live refresh if admin updates products while this tab is open
   setInterval(async ()=>{
-    if(document.hidden) return;
     const fresh = await loadProducts();
     if(JSON.stringify(fresh) !== JSON.stringify(PRODUCTS)){
       PRODUCTS = fresh;
       renderProducts();
     }
-  }, 300000); // every 5 minutes: only one small document is read each time
+  }, 8000);
 })();
 </script>
 </body>

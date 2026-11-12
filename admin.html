@@ -468,11 +468,19 @@ async function loadProducts(){
 }
 async function saveProductDoc(id, data){ await db.collection("products").doc(id).set(data); }
 async function deleteProductDoc(id){ await db.collection("products").doc(id).delete(); }
+let ORDERS_LOAD_ERROR = "";
 async function loadOrders(){
   try{
     const snap = await db.collection("orders").get();
-    return snap.docs.map(d=>Object.assign({id:d.id}, d.data()));
-  }catch(e){ console.error(e); return []; }
+    ORDERS_LOAD_ERROR = "";
+    // Orders archived with "حذف" (status "deleted") are hidden everywhere:
+    // orders list, dashboard counters, statistics and inventory.
+    return snap.docs.map(d=>Object.assign({id:d.id}, d.data())).filter(o=>o.status!=="deleted");
+  }catch(e){
+    console.error(e);
+    ORDERS_LOAD_ERROR = (e && (e.code||e.message)) || "unknown";
+    return [];
+  }
 }
 async function updateOrderDoc(id, patch){ await db.collection("orders").doc(id).update(patch); }
 
@@ -1017,7 +1025,22 @@ async function deleteOrder(id){
     renderOrders();
   }catch(e){
     console.error(e);
-    alert("تعذّر حذف الطلبية، تحققي من الاتصال بالإنترنت وحاولي من جديد.");
+    const reason = (e && (e.code||e.message)) || "غير معروف";
+    if(e && e.code==="permission-denied"){
+      // Firestore rules forbid real deletion but allow updates: hide the order instead.
+      if(confirm("قواعد Firebase تمنع الحذف النهائي من هذه اللوحة.\n\nهل تريدين إخفاء الطلبية من اللوحة بدلًا من ذلك؟ (تبقى محفوظة في قاعدة البيانات ولا تظهر في الطلبات ولا في الإحصائيات)")){
+        try{
+          await updateOrderDoc(id, {status:"deleted", deletedAt:new Date().toISOString()});
+          ORDERS = ORDERS.filter(o=>o.id!==id);
+          renderOrders();
+        }catch(e2){
+          console.error(e2);
+          alert("تعذّر إخفاء الطلبية أيضًا.\nسبب الخطأ: " + ((e2 && (e2.code||e2.message))||"غير معروف"));
+        }
+      }
+      return;
+    }
+    alert("تعذّر حذف الطلبية.\nسبب الخطأ: " + reason);
   }
 }
 function copyOrder(id){
@@ -1040,7 +1063,11 @@ function renderOrdersTable(){
   const tbody = document.getElementById("ordersTable");
   const empty = document.getElementById("ordersEmpty");
   empty.style.display = list.length ? "none" : "block";
-  if(!list.length && q) empty.textContent = "لا توجد طلبات بهذا الرقم.";
+  if(ORDERS_LOAD_ERROR){
+    empty.style.display = "block";
+    empty.textContent = "تعذّر تحميل الطلبات من قاعدة البيانات. سبب الخطأ: " + ORDERS_LOAD_ERROR;
+  }
+  else if(!list.length && q) empty.textContent = "لا توجد طلبات بهذا الرقم.";
   else empty.textContent = "لا توجد طلبات بعد.";
   tbody.innerHTML = list.map(o=>`
       <tr>
